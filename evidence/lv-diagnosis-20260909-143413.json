@@ -1,0 +1,70 @@
+{
+  "at": "2026-09-09T14:34:15.881483Z",
+  "retrieval": {
+    "latitude": 47.48627616952785,
+    "longitude": 19.07915612501993,
+    "radius_m": 1000,
+    "last_location_time": "2026-09-09T14:34:14.527670Z"
+  },
+  "device_identifier_identical_across_calls": true,
+  "coordinate_cases": [
+    {
+      "case": "dogru sira (lat, lng)",
+      "lat": 47.48627616952785,
+      "lng": 19.07915612501993,
+      "radius_m": 5000,
+      "result": "FALSE",
+      "last_location_time": "2026-09-09T14:34:14.697515"
+    },
+    {
+      "case": "TERS sira (lng, lat)",
+      "lat": 19.07915612501993,
+      "lng": 47.48627616952785,
+      "radius_m": 5000,
+      "result": "FALSE",
+      "last_location_time": "2026-09-09T14:34:14.877182"
+    },
+    {
+      "case": "enlem isareti ters",
+      "lat": -47.48627616952785,
+      "lng": 19.07915612501993,
+      "radius_m": 5000,
+      "result": "FALSE",
+      "last_location_time": "2026-09-09T14:34:15.015929"
+    },
+    {
+      "case": "boylam isareti ters",
+      "lat": 47.48627616952785,
+      "lng": -19.07915612501993,
+      "radius_m": 5000,
+      "result": "FALSE",
+      "last_location_time": "2026-09-09T14:34:15.247765"
+    },
+    {
+      "case": "her iki isaret ters",
+      "lat": -47.48627616952785,
+      "lng": -19.07915612501993,
+      "radius_m": 5000,
+      "result": "FALSE",
+      "last_location_time": "2026-09-09T14:34:15.377742"
+    }
+  ],
+  "freshness_cases": [
+    {
+      "max_age_s": 3600,
+      "last_location_time": "2026-09-09T14:34:15.512150",
+      "latency_ms": 134
+    },
+    {
+      "max_age_s": 60,
+      "last_location_time": "2026-09-09T14:34:15.645723",
+      "latency_ms": 134
+    },
+    {
+      "max_age_s": 10,
+      "error": "bad_request:422"
+    }
+  ],
+  "swapped_coordinates_return_true": false,
+  "conclusion": "hypotheses 1 and 2 eliminated; remaining explanation is that the two APIs are not backed by the same data source in the sandbox - a question for Nokia"
+}

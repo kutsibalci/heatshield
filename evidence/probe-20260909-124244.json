@@ -1,0 +1,668 @@
+{
+  "meta": {
+    "started": "2026-09-09T12:42:44+00:00",
+    "mode": "live",
+    "base_url": "https://network-as-code.p-eu.rapidapi.com",
+    "phone_masked": "+99999***1000",
+    "sink": "https://note-purposes-management-rendering.trycloudflare.com/webhooks/probe",
+    "has_key": true,
+    "has_token": false,
+    "include_write": true
+  },
+  "results": [
+    {
+      "key": "number_recycling",
+      "label": "Number Recycling",
+      "paths": [
+        "passthrough/camara/v1/number-recycling/number-recycling/v0.2/check"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 4453,
+      "source": "live",
+      "correlator": "eff83d0c-efd8-4756-aa42-4114b5f74ad5",
+      "request": {
+        "phoneNumber": "+99999***1000",
+        "specifiedDate": "2026-08-10"
+      },
+      "response_keys": [
+        "phoneNumberRecycled"
+      ],
+      "response": {
+        "phoneNumberRecycled": true
+      },
+      "note": ""
+    },
+    {
+      "key": "call_forwardings",
+      "label": "Call Forwarding Signal — tümü",
+      "paths": [
+        "passthrough/camara/v1/call-forwarding-signal/call-forwarding-signal/v0.3/call-forwardings"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 160,
+      "source": "live",
+      "correlator": "b0a0cf31-5dca-4e3f-b283-cc15ea25294b",
+      "request": {
+        "phoneNumber": "+99999***1000"
+      },
+      "response_keys": [
+        "dizi[2]"
+      ],
+      "response": [
+        "unconditional",
+        "conditional_no_answer"
+      ],
+      "note": ""
+    },
+    {
+      "key": "unconditional_cf",
+      "label": "Call Forwarding Signal — koşulsuz",
+      "paths": [
+        "passthrough/camara/v1/call-forwarding-signal/call-forwarding-signal/v0.3/unconditional-call-forwardings"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 150,
+      "source": "live",
+      "correlator": "f2532435-5840-4f90-9b29-3eb1e7b691d9",
+      "request": {
+        "phoneNumber": "+99999***1000"
+      },
+      "response_keys": [
+        "active"
+      ],
+      "response": {
+        "active": true
+      },
+      "note": ""
+    },
+    {
+      "key": "kyc_tenure",
+      "label": "KYC Tenure",
+      "paths": [
+        "passthrough/camara/v1/kyc-tenure/kyc-tenure/v0.1/check-tenure"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 143,
+      "source": "live",
+      "correlator": "42b545f2-3e05-4739-9b11-4134353c2653",
+      "request": {
+        "phoneNumber": "+99999***1000",
+        "tenureDate": "2026-06-11"
+      },
+      "response_keys": [
+        "contractType",
+        "tenureDateCheck"
+      ],
+      "response": {
+        "tenureDateCheck": true,
+        "contractType": "PAYG"
+      },
+      "note": ""
+    },
+    {
+      "key": "kyc_age",
+      "label": "KYC Age Verification",
+      "paths": [
+        "passthrough/camara/v1/kyc-age-verification/kyc-age-verification/v0.1/verify"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 167,
+      "source": "live",
+      "correlator": "1069193c-6557-4748-a84c-5d4a8ba83406",
+      "request": {
+        "phoneNumber": "+99999***1000",
+        "ageThreshold": 18
+      },
+      "response_keys": [
+        "ageCheck",
+        "identityMatchScore",
+        "verifiedStatus"
+      ],
+      "response": {
+        "ageCheck": "true",
+        "verifiedStatus": true,
+        "identityMatchScore": 60
+      },
+      "note": ""
+    },
+    {
+      "key": "kyc_match",
+      "label": "KYC Match",
+      "paths": [
+        "passthrough/camara/v1/kyc-match/kyc-match/v0.3/match"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 141,
+      "source": "live",
+      "correlator": "a73eb878-00d9-4a1a-9b56-9448fd1d8ace",
+      "request": {
+        "phoneNumber": "+99999***1000",
+        "name": "Test Kullanici"
+      },
+      "response_keys": [
+        "nameMatch"
+      ],
+      "response": {
+        "nameMatch": "false"
+      },
+      "note": ""
+    },
+    {
+      "key": "number_verify",
+      "label": "Number Verification",
+      "paths": [
+        "passthrough/camara/v1/number-verification/number-verification/v2/verify"
+      ],
+      "ok": false,
+      "kind": "auth",
+      "api": "number-verification",
+      "status": 401,
+      "retryable": false,
+      "message": "[number-verification] auth (401): {\"detail\":\"Authorization header is missing\"}",
+      "note": "Canlıda 3-legged OIDC + mobil veri ister; laboratuvar Wi‑Fi'ından 401/403 beklenir.",
+      "camara_code": null,
+      "endpoint_reached": false
+    },
+    {
+      "key": "sim_swap_check",
+      "label": "SIM Swap check",
+      "paths": [
+        "passthrough/camara/v1/sim-swap/sim-swap/v0/check"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 141,
+      "source": "live",
+      "correlator": "6ffcb38b-295c-43d1-a5ab-047aba10ff99",
+      "request": {
+        "phoneNumber": "+99999***1000",
+        "maxAge": 72
+      },
+      "response_keys": [
+        "swapped"
+      ],
+      "response": {
+        "swapped": true
+      },
+      "note": ""
+    },
+    {
+      "key": "sim_swap_date",
+      "label": "SIM Swap date",
+      "paths": [
+        "passthrough/camara/v1/sim-swap/sim-swap/v0/retrieve-date"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 130,
+      "source": "live",
+      "correlator": "6d3372f0-1914-4bdc-a0e2-debcd0c6fd42",
+      "request": {
+        "phoneNumber": "+99999***1000"
+      },
+      "response_keys": [
+        "latestSimChange"
+      ],
+      "response": {
+        "latestSimChange": "2026-09-09T12:32:47.531208Z"
+      },
+      "note": ""
+    },
+    {
+      "key": "device_swap_check",
+      "label": "Device Swap check",
+      "paths": [
+        "passthrough/camara/v1/device-swap/device-swap/v1/check"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 149,
+      "source": "live",
+      "correlator": "5b5cca08-aac3-4d86-a24f-80772d54e46d",
+      "request": {
+        "phoneNumber": "+99999***1000",
+        "maxAge": 24
+      },
+      "response_keys": [
+        "swapped"
+      ],
+      "response": {
+        "swapped": true
+      },
+      "note": ""
+    },
+    {
+      "key": "device_swap_date",
+      "label": "Device Swap date",
+      "paths": [
+        "passthrough/camara/v1/device-swap/device-swap/v1/retrieve-date"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 136,
+      "source": "live",
+      "correlator": "05020cb0-6d8a-4cd6-94c1-36d8b16172a2",
+      "request": {
+        "phoneNumber": "+99999***1000"
+      },
+      "response_keys": [
+        "latestDeviceChange"
+      ],
+      "response": {
+        "latestDeviceChange": "2026-08-18T13:27:11.128970Z"
+      },
+      "note": ""
+    },
+    {
+      "key": "consent",
+      "label": "Consent Info",
+      "paths": [
+        "passthrough/camara/v1/consent-info/consent-info/v0.1/retrieve"
+      ],
+      "ok": false,
+      "kind": "bad_request",
+      "api": "consent-info",
+      "status": 422,
+      "retryable": false,
+      "message": "[consent-info] bad_request (422): {\"detail\":[{\"type\":\"string_pattern_mismatch\",\"loc\":[\"body\",\"purpose\"],\"msg\":\"String should match pattern '^dpv:[a-zA-Z0-9]+$'\",\"input\":\"identity-assurance\",\"ctx\":{\"pattern\":\"^dpv:[a-zA-Z0-9]+$\"}},{\"ty",
+      "note": "",
+      "camara_code": null,
+      "endpoint_reached": false
+    },
+    {
+      "key": "reachability",
+      "label": "Device Reachability Status",
+      "paths": [
+        "device-status/device-reachability-status/v1/retrieve"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 145,
+      "source": "live",
+      "correlator": "b96cb709-8226-474c-ae92-ae46fa626366",
+      "request": {
+        "device": {
+          "phoneNumber": "+99999***1000"
+        }
+      },
+      "response_keys": [
+        "connectivity",
+        "device",
+        "lastStatusTime",
+        "reachable"
+      ],
+      "response": {
+        "device": {
+          "phoneNumber": "+99999***1000"
+        },
+        "reachable": true,
+        "connectivity": [
+          "SMS"
+        ],
+        "lastStatusTime": "2026-09-09T12:42:48.133249Z"
+      },
+      "note": ""
+    },
+    {
+      "key": "roaming",
+      "label": "Device Roaming Status",
+      "paths": [
+        "device-status/device-roaming-status/v1/retrieve"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 142,
+      "source": "live",
+      "correlator": "77c4fc80-9b88-4ac3-9700-b5ef8acebd6f",
+      "request": {
+        "device": {
+          "phoneNumber": "+99999***1000"
+        }
+      },
+      "response_keys": [
+        "countryCode",
+        "countryName",
+        "device",
+        "lastStatusTime",
+        "roaming"
+      ],
+      "response": {
+        "device": {
+          "phoneNumber": "+99999***1000"
+        },
+        "lastStatusTime": "2026-09-09T12:42:48.276142Z",
+        "roaming": true,
+        "countryCode": 36,
+        "countryName": [
+          "HU"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "key": "location_retrieve",
+      "label": "Location Retrieval",
+      "paths": [
+        "location-retrieval/v0/retrieve"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 163,
+      "source": "live",
+      "correlator": "4cae96ba-8125-4476-a177-d0d7ad0fccb7",
+      "request": {
+        "device": {
+          "phoneNumber": "+99999***1000"
+        },
+        "maxAge": 3600
+      },
+      "response_keys": [
+        "area",
+        "lastLocationTime"
+      ],
+      "response": {
+        "lastLocationTime": "2026-09-09T12:42:48.432941Z",
+        "area": {
+          "areaType": "CIRCLE",
+          "center": {
+            "latitude": 47.48627616952785,
+            "longitude": 19.07915612501993
+          },
+          "radius": 1000
+        }
+      },
+      "note": ""
+    },
+    {
+      "key": "location_verify",
+      "label": "Location Verification",
+      "paths": [
+        "location-verification/v1/verify"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 152,
+      "source": "live",
+      "correlator": "3ccd1420-d170-4bb8-b119-81aa0548d67a",
+      "request": {
+        "device": {
+          "phoneNumber": "+99999***1000"
+        },
+        "area": {
+          "areaType": "CIRCLE",
+          "center": {
+            "latitude": 25.2854,
+            "longitude": 51.531
+          },
+          "radius": 300.0
+        },
+        "maxAge": 3600
+      },
+      "response_keys": [
+        "lastLocationTime",
+        "verificationResult"
+      ],
+      "response": {
+        "verificationResult": "FALSE",
+        "lastLocationTime": "2026-09-09T12:42:48.590457"
+      },
+      "note": ""
+    },
+    {
+      "key": "congestion_query",
+      "label": "Congestion Insights",
+      "paths": [
+        "congestion-insights/v0/query"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 139,
+      "source": "live",
+      "correlator": "8ed511b0-7c0b-469b-b49c-9ac392bd5e3a",
+      "request": {
+        "device": {
+          "phoneNumber": "+99999***1000"
+        }
+      },
+      "response_keys": [
+        "dizi[4]",
+        "confidenceLevel",
+        "congestionLevel",
+        "timeIntervalStart",
+        "timeIntervalStop"
+      ],
+      "response": [
+        {
+          "timeIntervalStart": "2026-09-09T12:37:48.727283Z",
+          "timeIntervalStop": "2026-09-09T12:42:48.727283Z",
+          "congestionLevel": "High",
+          "confidenceLevel": 56
+        },
+        {
+          "timeIntervalStart": "2026-09-09T12:32:48.727283Z",
+          "timeIntervalStop": "2026-09-09T12:37:48.727283Z",
+          "congestionLevel": "Low",
+          "confidenceLevel": 50
+        },
+        {
+          "timeIntervalStart": "2026-09-09T12:27:48.727283Z",
+          "timeIntervalStop": "2026-09-09T12:32:48.727283Z",
+          "congestionLevel": "Low",
+          "confidenceLevel": 69
+        },
+        {
+          "timeIntervalStart": "2026-09-09T12:22:48.727283Z",
+          "timeIntervalStop": "2026-09-09T12:27:48.727283Z",
+          "congestionLevel": "High",
+          "confidenceLevel": 98
+        }
+      ],
+      "note": ""
+    },
+    {
+      "key": "geofencing_subs",
+      "label": "Geofencing Subscriptions",
+      "paths": [
+        "geofencing-subscriptions/v0.3/subscriptions"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 228,
+      "source": "live",
+      "correlator": "a5e698ca-4b1e-46db-8ffe-f48611fcd7a1",
+      "request": {
+        "protocol": "HTTP",
+        "sink": "https://note-purposes-management-rendering.trycloudflare.com/webhooks/probe",
+        "types": [
+          "org.camaraproject.geofencing-subscriptions.v0.area-entered"
+        ],
+        "config": {
+          "subscriptionDetail": {
+            "device": {
+              "phoneNumber": "+99999***1000"
+            },
+            "area": {
+              "areaType": "CIRCLE",
+              "center": {
+                "latitude": 25.2854,
+                "longitude": 51.531
+              },
+              "radius": 300.0
+            }
+          },
+          "subscriptionExpireTime": "2026-09-10T12:42:51.935421+00:00",
+          "initialEvent": false
+        }
+      },
+      "response_keys": [
+        "config",
+        "id",
+        "protocol",
+        "sink",
+        "startsAt",
+        "types"
+      ],
+      "response": {
+        "protocol": "HTTP",
+        "sink": "https://note-purposes-management-rendering.trycloudflare.com/webhooks/probe",
+        "types": [
+          "org.camaraproject.geofencing-subscriptions.v0.area-entered"
+        ],
+        "config": {
+          "subscriptionDetail": {
+            "device": {
+              "phoneNumber": "+99999***1000"
+            },
+            "area": {
+              "areaType": "CIRCLE",
+              "center": {
+                "latitude": 25.2854,
+                "longitude": 51.531
+              },
+              "radius": 300.0
+            }
+          },
+          "subscriptionExpireTime": "2026-09-10T12:42:51.935421Z",
+          "initialEvent": false
+        },
+        "id": "f402f71d-a5c1-4061-847f-d25fbcf79e2f",
+        "startsAt": "2026-09-09T12:42:48.955417Z"
+      },
+      "note": "Canlıda sink public HTTPS olmalı (ngrok/cloudflare tüneli)."
+    },
+    {
+      "key": "reachability_subs",
+      "label": "Device Reachability Status Subscriptions",
+      "paths": [
+        "device-status/device-reachability-status-subscriptions/v0.8/subscriptions"
+      ],
+      "ok": false,
+      "kind": "bad_request",
+      "api": "device-reachability-status-subscriptions",
+      "status": 422,
+      "retryable": false,
+      "message": "[device-reachability-status-subscriptions] bad_request (422): {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"types\"],\"msg\":\"Value error, types must be a list of length 1\",\"input\":[\"org.camaraproject.device-reachability-status-subscriptions.v0.reachability-data\"",
+      "note": "Canlıda sink public HTTPS olmalı.",
+      "camara_code": null,
+      "endpoint_reached": false
+    },
+    {
+      "key": "roaming_subs",
+      "label": "Device Roaming Status Subscriptions",
+      "paths": [
+        "device-status/device-roaming-status-subscriptions/v0.8/subscriptions"
+      ],
+      "ok": false,
+      "kind": "bad_request",
+      "api": "device-roaming-status-subscriptions",
+      "status": 422,
+      "retryable": false,
+      "message": "[device-roaming-status-subscriptions] bad_request (422): {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"types\"],\"msg\":\"Value error, types must be a list of length 1\",\"input\":[\"org.camaraproject.device-roaming-status-subscriptions.v0.roaming-on\",\"org.camara",
+      "note": "Canlıda sink public HTTPS olmalı.",
+      "camara_code": null,
+      "endpoint_reached": false
+    },
+    {
+      "key": "qod_sessions",
+      "label": "Quality on Demand",
+      "paths": [
+        "quality-on-demand/v1/sessions"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 174,
+      "source": "live",
+      "correlator": "c7c47dd8-b04c-4f4d-8645-74f73e946d78",
+      "request": {
+        "device": {
+          "phoneNumber": "+99999***1000"
+        },
+        "applicationServer": {
+          "ipv4Address": "203.0.113.10"
+        },
+        "qosProfile": "QOS_E",
+        "duration": 600
+      },
+      "response_keys": [
+        "applicationServer",
+        "device",
+        "duration",
+        "qosProfile",
+        "qosStatus",
+        "sessionId"
+      ],
+      "response": {
+        "qosProfile": "QOS_E",
+        "device": {
+          "phoneNumber": "+99999***1000"
+        },
+        "applicationServer": {
+          "ipv4Address": "203.0.113.10"
+        },
+        "sessionId": "e287ba44-c354-4ca8-9665-f7dd108ca76f",
+        "qosStatus": "REQUESTED",
+        "duration": 600
+      },
+      "note": "qosProfile adı operatöre göre değişir; 400 alırsan portaldaki profil listesine bak."
+    },
+    {
+      "key": "qod_retrieve",
+      "label": "Quality on Demand — oturum listesi",
+      "paths": [
+        "quality-on-demand/v1/retrieve-sessions"
+      ],
+      "ok": true,
+      "status": 200,
+      "latency_ms": 127,
+      "source": "live",
+      "correlator": "715fd556-0eaf-4d27-bd2a-916981be745d",
+      "request": {
+        "device": {
+          "phoneNumber": "+99999***1000"
+        }
+      },
+      "response_keys": [
+        "dizi[1]",
+        "applicationServer",
+        "device",
+        "duration",
+        "qosProfile",
+        "qosStatus",
+        "sessionId"
+      ],
+      "response": [
+        {
+          "qosProfile": "QOS_E",
+          "device": {
+            "phoneNumber": "+99999***1000"
+          },
+          "applicationServer": {
+            "ipv4Address": "203.0.113.10"
+          },
+          "sessionId": "e287ba44-c354-4ca8-9665-f7dd108ca76f",
+          "qosStatus": "REQUESTED",
+          "duration": 600
+        }
+      ],
+      "note": ""
+    }
+  ],
+  "cleanup": [
+    {
+      "kind": "geofencing",
+      "id": "f402f71d-a5c1-4061-847f-d25fbcf79e2f",
+      "deleted": true
+    },
+    {
+      "kind": "qod",
+      "id": "e287ba44-c354-4ca8-9665-f7dd108ca76f",
+      "deleted": true
+    }
+  ]
+}

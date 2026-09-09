@@ -1,0 +1,117 @@
+# =============================================================================
+#  MENA Ignite 2026 - HeatShield / NaC portfolio
+#  Repo root .gitignore  (Python + Windows)
+# =============================================================================
+
+# --- SECRETS: real credentials. NEVER commit. ---------------------------------
+# The root .env holds a LIVE Nokia RapidAPI key, OAuth client secret and the
+# probe MSISDN. Only *.env.example (placeholders) may be tracked.
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+!.env.template
+secrets.json
+credentials.json
+
+# --- Keys, certificates, tokens ----------------------------------------------
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+.netrc
+.htpasswd
+
+# --- Python bytecode & build artifacts ---------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+develop-eggs/
+*.egg-info/
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+# --- Virtual environments -----------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+.python-version
+Pipfile.lock
+
+# --- Test, lint and type-check caches ----------------------------------------
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# --- Jupyter / notebooks (can embed output containing live responses) --------
+.ipynb_checkpoints/
+*.ipynb
+
+# --- Editors and IDEs ---------------------------------------------------------
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# --- Editor / backup leftovers ------------------------------------------------
+*.bak
+*.orig
+*.rej
+*~
+*.swp
+*.swo
+*.tmp
+
+# --- Windows shell cruft ------------------------------------------------------
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+# macOS, in case a teammate is on one
+.DS_Store
+
+# --- Logs and local runtime output -------------------------------------------
+*.log
+logs/
+nohup.out
+*.pid
+*.sqlite
+*.sqlite3
+*.db
+
+# --- Live probe output: raw API captures may contain unmasked responses -------
+# The two reviewed, masked probe runs under _ortak/docs/live-probe/ are the
+# evidence we DO publish; every other/newer capture is ignored by default.
+# Re-check masking (has_key / phone_masked) before un-ignoring any new file.
+_ortak/docs/live-probe/*
+!_ortak/docs/live-probe/probe-20260817-103901.json
+!_ortak/docs/live-probe/probe-20260817-103901.md
+!_ortak/docs/live-probe/probe-20260822-084623.json
+!_ortak/docs/live-probe/probe-20260822-084623.md
+*probe-raw*.json
+*-unmasked.json
+
+# --- Local scratch / personal notes not meant for the jury --------------------
+scratch/
+tmp/
+_local/

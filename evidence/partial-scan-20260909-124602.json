@@ -1,0 +1,85 @@
+{
+  "at": "2026-09-09T12:46:06.406603Z",
+  "center": {
+    "latitude": 47.48627616952785,
+    "longitude": 19.07915612501993
+  },
+  "platform_reported_radius_m": 1000,
+  "last_location_time": "2026-09-09T12:46:00.472893Z",
+  "scan": [
+    {
+      "radius_m": 100,
+      "loose": "FALSE",
+      "loose_ms": 179,
+      "strict": "FALSE",
+      "strict_ms": 160,
+      "error": null
+    },
+    {
+      "radius_m": 250,
+      "loose": "FALSE",
+      "loose_ms": 154,
+      "strict": "FALSE",
+      "strict_ms": 153,
+      "error": null
+    },
+    {
+      "radius_m": 500,
+      "loose": "FALSE",
+      "loose_ms": 136,
+      "strict": "FALSE",
+      "strict_ms": 132,
+      "error": null
+    },
+    {
+      "radius_m": 750,
+      "loose": "FALSE",
+      "loose_ms": 148,
+      "strict": "FALSE",
+      "strict_ms": 271,
+      "error": null
+    },
+    {
+      "radius_m": 1000,
+      "loose": "FALSE",
+      "loose_ms": 147,
+      "strict": "FALSE",
+      "strict_ms": 130,
+      "error": null
+    },
+    {
+      "radius_m": 1500,
+      "loose": "FALSE",
+      "loose_ms": 152,
+      "strict": "FALSE",
+      "strict_ms": 146,
+      "error": null
+    },
+    {
+      "radius_m": 2000,
+      "loose": "FALSE",
+      "loose_ms": 135,
+      "strict": "FALSE",
+      "strict_ms": 139,
+      "error": null
+    },
+    {
+      "radius_m": 3000,
+      "loose": "FALSE",
+      "loose_ms": 129,
+      "strict": "FALSE",
+      "strict_ms": 128,
+      "error": null
+    },
+    {
+      "radius_m": 5000,
+      "loose": "FALSE",
+      "loose_ms": 135,
+      "strict": "FALSE",
+      "strict_ms": 134,
+      "error": null
+    }
+  ],
+  "first_true_radius_m": null,
+  "partial_radii_m": []
+}

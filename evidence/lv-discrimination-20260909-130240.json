@@ -1,0 +1,61 @@
+{
+  "at": "2026-09-09T13:02:42.709316Z",
+  "question": "Does sandbox Location Verification discriminate by requested area?",
+  "device_position": {
+    "latitude": 47.48627616952785,
+    "longitude": 19.07915612501993
+  },
+  "platform_reported_uncertainty_radius_m": 1000,
+  "location_retrieve_without_max_age": {
+    "status": "bad_request:422",
+    "note": "maxAge parametresiz cagri REDDEDILDI"
+  },
+  "cases": [
+    {
+      "case": "cihazin kendi konumu, 50 km",
+      "center": {
+        "latitude": 47.48627616952785,
+        "longitude": 19.07915612501993
+      },
+      "radius_m": 50000,
+      "result": "FALSE",
+      "last_location_time": "2026-09-09T13:02:39.011474",
+      "latency_ms": 180
+    },
+    {
+      "case": "cihazin kendi konumu, 200 km",
+      "center": {
+        "latitude": 47.48627616952785,
+        "longitude": 19.07915612501993
+      },
+      "radius_m": 200000,
+      "result": "FALSE",
+      "last_location_time": "2026-09-09T13:02:39.172836",
+      "latency_ms": 147
+    },
+    {
+      "case": "baska sehir (Doha), 500 m",
+      "center": {
+        "latitude": 25.2854,
+        "longitude": 51.531
+      },
+      "radius_m": 500,
+      "result": "FALSE",
+      "last_location_time": "2026-09-09T13:02:39.358519",
+      "latency_ms": 184
+    },
+    {
+      "case": "konum +0.001 derece kaydirilmis, 1 km",
+      "center": {
+        "latitude": 47.487276169527846,
+        "longitude": 19.080156125019933
+      },
+      "radius_m": 1000,
+      "result": "FALSE",
+      "last_location_time": "2026-09-09T13:02:39.493988",
+      "latency_ms": 134
+    }
+  ],
+  "discriminates_by_area": false,
+  "conclusion": "Transport and schema proven; the verdict does not vary with the requested area, so the decision logic is not proven and the PARTIAL rate cannot be measured here."
+}

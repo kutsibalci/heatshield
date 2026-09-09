@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeatShield — Heat Stroke Protection on Construction Sites</title>
+<link rel="stylesheet" href="/static/base.css">
+<style>
+  .motto{font-size:15px;color:var(--accent);font-weight:600;text-align:right}
+  .layout{display:grid;grid-template-columns:1.15fr 1fr;gap:16px}@media (max-width:1080px){.layout{grid-template-columns:1fr}}
+  .wbgt{display:flex;align-items:baseline;gap:10px}
+  .wbgt .val{font-size:44px;font-weight:800;line-height:1}
+  .wbgt .val.ok{color:var(--ok)}.wbgt .val.warn{color:var(--warn)}.wbgt .val.bad{color:var(--bad)}
+  .bar{height:10px;border-radius:6px;background:#0b0f18;border:1px solid var(--line);overflow:hidden;margin-top:6px}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444)}
+  .budget{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
+  .budget b{width:14px;height:14px;border-radius:3px;display:inline-block;background:#243049;border:1px solid var(--line)}
+  .budget b.spent{background:var(--accent);border-color:var(--accent)}
+  .budget b.reserve{background:#7c5cff;border-color:#7c5cff}
+  .budget b.skip{background:transparent;border-style:dashed;border-color:var(--bad)}
+  svg.site{width:100%;height:auto;background:#0b0f18;border-radius:12px;border:1px solid var(--line)}
+  .perim{fill:rgba(56,189,248,.06);stroke:rgba(56,189,248,.5);stroke-dasharray:5 5}
+  .perim.breached{fill:rgba(239,68,68,.09);stroke:rgba(239,68,68,.6)}
+  .w{cursor:pointer}
+  .w circle{stroke:#0b0f18;stroke-width:1.5}
+  .w.ok circle{fill:#22c55e}.w.silent circle{fill:#ef4444}.w.net circle{fill:#38bdf8}.w.batt circle{fill:#f59e0b}
+  .w.left circle{fill:#8b95a7}.w.unknown circle{fill:#4b5675}.w.out circle{fill:#243049}
+  .w.medic circle{stroke:#fff;stroke-width:2.5}
+  .w text{font-size:8px;fill:var(--muted)}
+  .legend span{display:inline-block;margin-right:12px;font-size:11px;color:var(--muted)}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}th,td{text-align:left;padding:5px 7px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+  tr.skipped td{opacity:.5}
+  tr.medic td{background:rgba(239,68,68,.09)}
+  .verdicts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+  .verdicts .card{margin:0}
+  .conf{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--muted)}
+  .ledger{max-height:300px;overflow:auto;font-size:12px}
+  .ledger .row{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)}
+  .ledger .row .t{color:var(--muted);font-family:ui-monospace,Consolas,monospace;min-width:52px}
+  .ledger .row .ev{color:var(--accent);min-width:130px}
+  .jur{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+  .headline{font-size:14px;color:var(--accent);margin-top:6px}
+  details summary{cursor:pointer;color:var(--muted);font-size:13px}
+  .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .big{font-size:24px;font-weight:800}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>HeatShield — Heat Stroke Protection on Construction Sites</h1>
+    <div class="sub">Nokia Network as Code · Geofencing + Location Verification + Reachability + Congestion Insights + QoD · <span id="health"></span> · <span id="sched"></span></div>
+  </div>
+  <div class="motto">“The network is the sensor; the worker does nothing.”</div>
+</header>
+<main>
+  <div class="card">
+    <div class="toolbar" style="margin:0">
+      <button id="btnDay">Hot day (full cycle)</button>
+      <button id="btnCollapse" style="background:var(--warn)">Collapse, or a dead battery?</button>
+      <button id="btnNo" class="ghost">No breach → zero queries</button>
+      <button id="btnJur" class="ghost">Three jurisdictions</button>
+      <button id="btnDown" class="ghost">Nokia API down</button>
+      <button id="btnGuard" class="ghost">Planner guard — the model is refused</button>
+      <button id="btnReset" class="ghost">Reset</button>
+    </div>
+    <div class="small" style="margin-top:8px">One button: the site is provisioned (a real CAMARA geofence subscription for every worker), the morning entries stream in as free events, then the sweeps are played back.</div>
+    <div class="headline" id="headline"></div>
+  </div>
+
+  <div class="grid" style="margin-top:16px">
+    <div class="card" id="wbgtCard">
+      <div class="lbl">WBGT · <span id="jurName">Qatar</span></div>
+      <div class="wbgt"><div class="val ok" id="wbgtVal">—</div><div><div class="small" id="wbgtLimit"></div><div class="small" id="banLine"></div></div></div>
+      <div class="bar"><i id="wbgtBar" style="width:0%"></i></div>
+      <div class="kv" style="margin-top:8px">State: <b id="siteState">passive_watch</b> · Sweep interval: <b id="sweepInt">—</b> · Local time: <b id="localTime">—</b></div>
+      <div class="small" id="legalRef" style="margin-top:6px"></div>
+    </div>
+    <div class="card">
+      <div class="lbl">Verification budget (this sweep)</div>
+      <div class="budget" id="budgetBoxes"></div>
+      <div class="kv" style="margin-top:8px">Planned <b id="bPlanned">0</b> · Spent <b id="bSpent">0</b> · <span style="color:var(--bad)">Budget exhausted, not queried: <b id="bSkip">0</b></span></div>
+      <div class="small" style="margin-top:6px">Blue = query spent · Purple = presumed-safe reserve recheck · Dashed red = worker still in the queue because the budget ran out</div>
+    </div>
+    <div class="card">
+      <div class="lbl">Query budget</div>
+      <div class="big" id="qTotal">0</div>
+      <div class="small" id="qBasis">total network queries · <b id="qVerify">0</b> of them ranked verifications, against <b id="qNaive">0</b> if every worker on the roster were polled once on every breached sweep</div>
+      <div class="kv" style="margin-top:8px">Cases escalated to a medic: <b id="escCount">0</b> · Coverage: <b id="cov">—</b></div>
+      <div class="small" id="covNote"></div>
+      <div class="small" id="costNote" style="margin-top:6px"></div>
+    </div>
+  </div>
+
+  <div class="layout" style="margin-top:16px">
+    <div>
+      <div class="card">
+        <h3>Site — <span id="siteName">—</span></h3>
+        <svg class="site" viewBox="0 0 620 340" id="map" aria-label="site perimeter geofence and workers">
+          <circle class="perim" id="perim" cx="310" cy="170" r="150"/>
+          <text x="310" y="34" text-anchor="middle" class="small" fill="#8b95a7" font-size="11">perimeter geofence (r = 500 m)</text>
+          <g id="workers"></g>
+          <text x="12" y="330" font-size="10" fill="#8b95a7" id="mapNote"></text>
+        </svg>
+        <div class="legend" style="margin-top:8px">
+          <span><i style="background:#22c55e"></i>reachable</span>
+          <span><i style="background:#ef4444"></i>went silent — probable collapse</span>
+          <span><i style="background:#38bdf8"></i>network event</span>
+          <span><i style="background:#f59e0b"></i>dead battery</span>
+          <span><i style="background:#8b95a7"></i>left the site</span>
+          <span><i style="background:#243049"></i>exit event recorded</span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3>Who gets queried? — exposure ranking</h3>
+        <div class="small">score = severity × exposure_minutes × staleness × vulnerability · The budget is spent from the top down and stops there, even if the list is not finished.</div>
+        <table><thead><tr><th>#</th><th>Worker</th><th>Score</th><th>Vulnerability</th><th>This sweep</th><th>Rationale</th></tr></thead><tbody id="rankRows"><tr><td colspan="6" class="small">—</td></tr></tbody></table>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3>Evidence ledger (compliance record)</h3>
+        <div class="small">A timestamped, per-worker record for the auditor and the insurer. This ledger is the product itself.</div>
+        <div class="ledger" id="ledger"><div class="small" style="margin-top:8px">—</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h3>Silent device verdicts</h3>
+        <div class="small">Not every unreachable device is an emergency. The cluster test + device history + trajectory tell them apart; only the case that survives goes to a human.</div>
+        <div class="verdicts" id="verdicts" style="margin-top:10px"><div class="small">—</div></div>
+      </div>
+      <div class="card" id="jurCard" style="margin-top:16px;display:none">
+        <h3>Jurisdiction = a configuration record</h3>
+        <div class="jur" id="jurBox"><div class="small">Press the “Three jurisdictions” button.</div></div>
+      </div>
+      <div class="card" id="guardCard" style="margin-top:16px;display:none">
+        <h3>Planner guard — the model sits under the rules</h3>
+        <div class="small">The model may argue about the <b>order</b>; it cannot widen the plan. Every proposal goes through a structural gate, and the gate's verdict — accepted or refused — is written to the evidence ledger.</div>
+        <div class="jur" id="guardBox" style="margin-top:10px"></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h3>Legal basis and data minimisation</h3>
+        <ul class="small" style="padding-left:18px;margin:6px 0">
+          <li><b>No breach, no authority to query</b> — the system cannot turn into productivity surveillance (purpose limitation).</li>
+          <li>The default query returns <b>a verdict, not coordinates</b>: "is he inside the zone?" (Location Verification).</li>
+          <li>Coordinates only in a <b>probable collapse</b> case, once; only a coarse summary is written to the ledger.</li>
+          <li>The lines are issued by the employer; permission is obtained within the operator's consent framework.</li>
+          <li>Continuous location history is <b>never retained</b> (<code>location_history_size: 0</code>).</li>
+        </ul>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <details><summary>Debug — recent NaC calls, degraded signals, raw response</summary>
+          <h4 class="small">Calls in this sweep</h4><pre id="callsPre">[]</pre>
+          <h4 class="small">Degraded signals</h4><pre id="degPre">[]</pre>
+          <h4 class="small">Last response</h4><pre id="rawPre">{}</pre>
+        </details>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="/static/base.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const VERDICT_LABEL = { probable_collapse: 'PROBABLE COLLAPSE', probable_network: 'network event', probable_battery: 'dead battery', probable_left: 'left the site' };
+const VERDICT_CLS = { probable_collapse: 'silent', probable_network: 'net', probable_battery: 'batt', probable_left: 'left' };
+let lastData = null;
+
+function workerPos(i, n) {  // deterministic layout: spiral inside the perimeter
+  const a = i * 2.399963, r = 18 + 122 * Math.sqrt((i + 0.5) / Math.max(n, 1));
+  return [310 + r * Math.cos(a), 170 + r * Math.sin(a)];
+}
+function drawWorkers(workers) {
+  const n = workers.length;
+  $('workers').innerHTML = workers.map((w, i) => {
+    const [x, y] = workerPos(i, n);
+    let cls = 'unknown';
+    if (!w.inside) cls = 'out';
+    else if (w.verdict) cls = VERDICT_CLS[w.verdict] || 'unknown';
+    else if (w.reachable === true) cls = 'ok';
+    else if (w.reachable === false) cls = 'silent';
+    const medic = w.state === 'distress' ? ' medic' : '';
+    const r = 6 + Math.min(5, (w.score || 0) / 40);
+    return `<g class="w ${cls}${medic}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><title>${esc(w.worker_id)} ${esc(w.name || '')} · score ${w.score} · ${esc(w.verdict || (w.reachable === false ? 'silent' : w.inside ? 'inside' : 'exited'))}</title><circle r="${r.toFixed(1)}"/><text x="${(r + 2).toFixed(1)}" y="3">${esc(w.worker_id.replace('W-', ''))}</text></g>`;
+  }).join('');
+}
+function renderBudget(b) {
+  const boxes = [];
+  for (let i = 0; i < b.spent; i++) boxes.push('<b class="spent"></b>');
+  for (let i = 0; i < b.reserve_rechecks; i++) boxes.push('<b class="reserve"></b>');
+  for (let i = 0; i < b.skipped_for_budget; i++) boxes.push('<b class="skip"></b>');
+  const rest = Math.max(0, b.per_sweep - b.spent - b.reserve_rechecks);
+  for (let i = 0; i < rest; i++) boxes.push('<b></b>');
+  $('budgetBoxes').innerHTML = boxes.join('');
+  $('bPlanned').textContent = b.planned; $('bSpent').textContent = b.spent; $('bSkip').textContent = b.skipped_for_budget;
+}
+function renderRank(sweep) {
+  const planned = {}; (sweep.plan || []).forEach(a => { planned[a.worker] = a; });
+  const rows = (sweep.ranked || []).slice(0, 14);
+  if (!rows.length) { $('rankRows').innerHTML = '<tr><td colspan="6" class="small">No breach — no ranking was made, no authority to query.</td></tr>'; return; }
+  $('rankRows').innerHTML = rows.map((r, i) => {
+    const a = planned[r.masked];
+    const call = (sweep.calls || []).find(c => c.worker_id === r.worker_id);
+    const medic = (sweep.escalations || []).some(e => e.worker_id === r.worker_id);
+    const what = call ? badge(call.api === 'location-retrieval' ? 'bad' : 'info', call.api.replace('device-', '').replace('-status', ''))
+      : a ? badge('info', a.api) : badge('warn', 'budget exhausted');
+    return `<tr class="${a ? '' : 'skipped'} ${medic ? 'medic' : ''}"><td>${i + 1}</td><td>${esc(r.worker_id)} <span class="small">${esc(r.masked)}</span></td>
+      <td>${r.score}</td><td>${r.vulnerability}×</td><td>${what}</td><td class="small">${esc(a ? a.reason : 'list not finished, budget exhausted')}</td></tr>`;
+  }).join('');
+}
+function renderVerdicts(list) {
+  if (!list || !list.length) { $('verdicts').innerHTML = '<div class="small">No silent devices in this sweep.</div>'; return; }
+  $('verdicts').innerHTML = list.map(v => {
+    const collapse = v.verdict === 'probable_collapse';
+    return `<div class="card ${collapse ? 'bad' : v.verdict === 'probable_battery' ? 'warn' : ''}">
+      <h3>${esc(v.name || v.worker_id)} ${badge(collapse ? 'bad' : 'info', VERDICT_LABEL[v.verdict] || v.verdict)}</h3>
+      <div class="conf">confidence ${(v.confidence * 100).toFixed(0)}% · cluster: ${v.cluster.reachable} reachable / ${v.cluster.unreachable} silent · congestion: ${esc(v.congestion || '—')}</div>
+      <div class="small" style="margin-top:6px">action: ${esc(v.actions.join(', '))}</div>
+      ${renderExplain(v.explain)}
+    </div>`;
+  }).join('');
+}
+function renderGuard(d) {
+  const a = d.accepted, r = d.rejected;
+  if (!a && !r) { $('guardCard').style.display = 'none'; return; }
+  $('guardCard').style.display = '';
+  const ord = l => (l && l.length) ? l.join(' → ') : '—';
+  const off = v => v == null ? '' : (Array.isArray(v) ? v.join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v));
+  $('guardBox').innerHTML = `
+    <div class="card ${a && a.used ? 'ok' : ''}">
+      <h3>Proposal 1 ${badge(a && a.used ? 'ok' : 'warn', a && a.used ? 'ACCEPTED' : 'not applied')}</h3>
+      <div class="small">A valid re-ranking — ${a && a.moved != null ? a.moved : 0} position(s) changed. The gate let it through.</div>
+      <div class="kv" style="margin-top:6px">rules’ order</div><div class="conf">${esc(ord(a && a.before))}</div>
+      <div class="kv" style="margin-top:4px">model’s order</div><div class="conf">${esc(ord(a && a.after))}</div>
+    </div>
+    <div class="card bad">
+      <h3>Proposal 2 ${badge('bad', r && r.used ? 'applied' : 'REJECTED')}</h3>
+      <div class="small">violation: <b>${esc((r && r.violation) || '—')}</b>${r && r.offending ? ' · offending: ' + esc(off(r.offending)) : ''}</div>
+      <div class="small" style="margin-top:6px">The model tried to put a worker into the plan who was never in it. The proposal was refused <b>whole</b>; the rules’ order stood: <b>${r && r.order_held ? 'yes' : 'no'}</b>.</div>
+    </div>
+    ${d.note ? `<div class="small" style="grid-column:1/-1">${d.simulated_model ? badge('warn', 'SIMULATED MODEL') + ' ' : ''}${esc(d.note)}</div>` : ''}`;
+}
+function renderLedger(items) {
+  const rows = (items || []).slice(-60).reverse();
+  $('ledger').innerHTML = rows.length ? rows.map(e => `<div class="row"><span class="t">${esc((e.t || '').slice(11, 16))}</span><span class="ev">${esc(e.event)}</span><span>${esc(e.worker_masked || '')} ${esc(e.detail)}</span></div>`).join('')
+    : '<div class="small" style="margin-top:8px">—</div>';
+}
+function applySweep(s, data) {
+  const j = data.config.jurisdiction || {};
+  $('jurName').textContent = j.name || '—';
+  $('wbgtLimit').textContent = `legal limit ${j.wbgt_limit_c} °C`;
+  $('banLine').textContent = j.summer_ban ? `summer ban ${j.summer_ban.start}–${j.summer_ban.end} · ${j.summer_ban.from}–${j.summer_ban.to}` : '';
+  $('legalRef').textContent = j.legal_ref || '';
+  const v = s.wbgt_c;
+  $('wbgtVal').textContent = v == null ? '—' : v.toFixed(1) + '°';
+  $('wbgtVal').className = 'val ' + (!s.breached ? 'ok' : s.level === 'severe' ? 'bad' : 'warn');
+  $('wbgtBar').style.width = Math.max(0, Math.min(100, ((v || 0) - 26) / 12 * 100)) + '%';
+  $('siteState').textContent = s.state;
+  $('sweepInt').textContent = s.sweep_interval_min + ' min';
+  $('localTime').textContent = s.local_time || (s.now || '').slice(11, 16);
+  $('perim').setAttribute('class', 'perim' + (s.breached ? ' breached' : ''));
+  $('mapNote').textContent = s.reason;
+  renderBudget(s.budget); renderRank(s); renderVerdicts(s.verdicts); drawWorkers(s.workers || []);
+  $('callsPre').textContent = JSON.stringify(s.calls, null, 1);
+  $('escCount').textContent = (data.totals || {}).escalations ?? (s.escalations || []).length;
+}
+
+async function play(d) {
+  lastData = d;
+  $('rawPre').textContent = JSON.stringify(d, null, 1);
+  $('headline').textContent = d.headline || '';
+  $('siteName').textContent = (d.site || {}).name || '—';
+  const tot = d.totals || {}, nb = tot.naive_baseline || {}, cost = tot.cost || {};
+  $('qTotal').textContent = tot.queries; $('qNaive').textContent = tot.queries_if_polled_everyone;
+  $('qVerify').textContent = nb.verification_queries_made != null ? nb.verification_queries_made : tot.queries;
+  $('qBasis').title = nb.basis || '';
+  $('costNote').textContent = cost.priced
+    ? `≈ $${cost.estimated_cost_usd} at an illustrative unit cost of $${cost.unit_cost_usd} per query — configured locally (HS_QUERY_UNIT_COST_USD), NOT an operator quote.`
+    : 'No dollar figure is shown: the operator publishes no unit price and we hold no quote.';
+  $('costNote').title = cost.basis || '';
+  renderGuard(d);
+  $('cov').textContent = d.coverage.coverage_pct + '%';
+  $('covNote').textContent = d.coverage.missing.length ? `Badged in but not visible on the network: ${d.coverage.missing.join(', ')} — a morning reconciliation task` : 'All badged workers are visible on the network.';
+  $('degPre').textContent = JSON.stringify(d.degraded || [], null, 1);
+  for (const s of d.sweeps) {
+    $('mapNote').textContent = s.label;
+    applySweep(s, d);
+    renderLedger((d.ledger || []).filter(e => e.t <= s.now));
+    await sleep(1500);
+  }
+  renderLedger(d.ledger);
+}
+
+async function run(name) {
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  try {
+    if (name === 'jurisdiction') { await runJur(); }
+    else { await play(await api('/v1/demo/' + name, {})); }
+  } catch (e) { alert('Error: ' + e.message); }
+  finally { document.querySelectorAll('button').forEach(b => b.disabled = false); }
+}
+async function runJur() {
+  const d = await api('/v1/demo/jurisdiction', {});
+  $('guardCard').style.display = 'none';
+  $('rawPre').textContent = JSON.stringify(d, null, 1);
+  $('headline').textContent = d.headline;
+  $('jurCard').style.display = '';
+  $('jurBox').innerHTML = d.results.map(r => `<div class="card ${r.breached ? 'bad' : 'ok'}">
+      <h3>${esc(r.jurisdiction.name)} ${badge(r.breached ? 'bad' : 'ok', r.breached ? 'WORK PROHIBITED' : 'no ban')}</h3>
+      <div class="kv">Local time: <b>${esc(r.local_time)}</b> · WBGT 31.5 °C (limit ${r.jurisdiction.wbgt_limit_c})</div>
+      <div class="small" style="margin-top:6px">${esc(r.reason)}</div>
+      <div class="small" style="margin-top:6px">${esc(r.jurisdiction.legal_ref)}</div>
+    </div>`).join('');
+}
+$('btnDay').onclick = () => run('heat-day');
+$('btnCollapse').onclick = () => run('collapse');
+$('btnNo').onclick = () => run('no-breach');
+$('btnJur').onclick = () => run('jurisdiction');
+$('btnDown').onclick = () => run('api-down');
+$('btnGuard').onclick = () => run('planner-guard');
+$('btnReset').onclick = async () => {
+  await api('/v1/reset', {});
+  $('workers').innerHTML = ''; $('ledger').innerHTML = '<div class="small">—</div>'; $('verdicts').innerHTML = '<div class="small">—</div>';
+  $('rankRows').innerHTML = '<tr><td colspan="6" class="small">—</td></tr>'; $('headline').textContent = '';
+  $('wbgtVal').textContent = '—'; $('budgetBoxes').innerHTML = ''; $('qTotal').textContent = '0'; $('qNaive').textContent = '0';
+  $('jurCard').style.display = 'none'; $('guardCard').style.display = 'none'; $('siteState').textContent = 'passive_watch';
+  $('qVerify').textContent = '0'; $('costNote').textContent = '';
+};
+loadHealth('health');
+loadScheduler('sched'); setInterval(() => loadScheduler('sched'), 15000);
+api('/v1/config').then(c => { $('jurName').textContent = c.jurisdiction.name; $('wbgtLimit').textContent = `legal limit ${c.jurisdiction.wbgt_limit_c} °C`; $('legalRef').textContent = c.jurisdiction.legal_ref; }).catch(() => { });
+</script>
+</body>
+</html>
