@@ -11,8 +11,8 @@
 Anahtar yoksa model devre dışıdır ve sistem tamamen deterministik çalışır — model bir
 iyileştirmedir, bağımlılık değil. Her iki durumda da karar kanıt defterinde görünür.
 """
-from .llm_adapter import LLMPlanner, RulesPlanner, get_planner, guard_plan
+from .llm_adapter import ChainPlanner, LLMPlanner, RulesPlanner, get_planner, guard_plan
 from .policy import SiteRuntime, WorkerRuntime, apply_geofence_event, new_worker, reset_planner, step, sweep_due, STATES
 
 __all__ = ["SiteRuntime", "WorkerRuntime", "step", "apply_geofence_event", "new_worker", "sweep_due", "STATES",
-           "get_planner", "guard_plan", "RulesPlanner", "LLMPlanner", "reset_planner"]
+           "get_planner", "guard_plan", "RulesPlanner", "LLMPlanner", "ChainPlanner", "reset_planner"]

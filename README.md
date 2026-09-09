@@ -204,6 +204,28 @@ starvation guard. Those are deterministic and tested. The model stays because or
 when a sweep is cut short by a rate limit or a degraded API — **we have not quantified that case, so
 we do not claim it.**
 
+### And we ran it live
+
+On 9 September 2026 the planner was pointed at real providers. It works, and it reasons the way you
+would want:
+
+> *"Prioritise unacclimatised, unseen, and prior incident workers first."*
+> `W-002: First week on site, unacclimatised, high heat risk` ·
+> `W-008: Prior heat incident, unseen long time, high risk`
+
+Then we measured how often it is actually there. On the free tiers of both providers, **2 of 8 calls
+succeeded**; the rest returned HTTP 429 or 503. Gemini alone returned 503 on ten consecutive calls
+earlier the same evening. Latency, when it answers, has a median of 3.2 s — inside the 6-second
+budget the agent allows a re-ranker before abandoning it.
+
+So the provider chain is not decoration either. Gemini is tried first and usually fails in about
+400 ms; Groq answers in about 2 s; if both are gone the deterministic order runs. Every one of those
+outcomes is written to the evidence ledger with the HTTP status, because *"the model was
+unavailable"* is not something a safety system should record vaguely.
+
+This is the honest shape of it: **a model that is often absent, behind a guard that makes its
+absence a non-event.** We would rather show that than a screenshot of one good response.
+
 ## Privacy
 
 - **No breach, no query authority.** The system cannot become productivity surveillance.

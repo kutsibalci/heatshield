@@ -42,7 +42,11 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 # Model degisirse plan uyelugini degistiremez, API secemez, butceyi asamaz — sozlesme sabit.
 # Yani model surumu kayabilir, GUVENLIK OZELLIGI kayamaz. Takma ad bu yuzden guvenli.
 DEFAULT_GEMINI_MODEL = os.environ.get("HS_GEMINI_MODEL", "gemini-flash-latest")
-DEFAULT_GROQ_MODEL = os.environ.get("HS_GROQ_MODEL", "llama-3.3-70b-versatile")
+# 9 Eylul 2026, olculdu: Groq'un model listesinde Llama yok (404). Calisan ve JSON modunu
+# destekleyen adaylar olculdu: gpt-oss-20b 950 ms, gpt-oss-120b 647 ms, qwen3.8-27b 454 ms.
+# Kucuk model bilincli tercih: burasi DUSUK GECIKME yolu ve ciktinin dogrulugunu zaten
+# `guard_plan()` denetliyor — hiza yatirim yapmak, akil yurutmeye yatirim yapmaktan onemli.
+DEFAULT_GROQ_MODEL = os.environ.get("HS_GROQ_MODEL", "openai/gpt-oss-20b")
 PLANNER_TIMEOUT_S = float(os.environ.get("HS_PLANNER_TIMEOUT_S", "6"))
 
 SYSTEM_RULES = """You re-rank a verification plan for a heat-safety agent on a construction site.
@@ -262,6 +266,42 @@ class LLMPlanner:
         return ordered
 
 
+# ---------------------------------------------------------------------------- sağlayıcı zinciri
+class ChainPlanner:
+    """Birincil sağlayıcı düşerse ikincisi denenir.
+
+    9 Eylül 2026 ölçümü: Gemini'ye arka arkaya on çağrının onu da **HTTP 503** döndü (sağlayıcı
+    tarafında yoğunluk, bizim kotamız değil) ve gecikme 0,6 ile 18,5 saniye arasında değişti.
+    Tek sağlayıcıya bağlı bir yeniden sıralayıcı pratikte çoğu zaman yok demektir.
+
+    Zincir yalnızca ERİŞİLEBİLİRLİK sorununu çözer, güvenlik sözleşmesini değiştirmez: her iki
+    sağlayıcının önerisi de aynı `guard_plan()` kapısından geçer, ikisi de düşerse deterministik
+    sıraya dönülür. Model bir iyileştirmedir, bağımlılık değil.
+    """
+
+    provider = "chain"
+
+    def __init__(self, planners: list):
+        self.planners = planners
+        self.name = " → ".join(p.name for p in planners)
+        self._verdict: dict = {"used": False, "reason": "not called yet"}
+
+    def last_verdict(self) -> dict:
+        return dict(self._verdict)
+
+    def propose(self, site_snapshot: dict, candidate_actions: list[Any]) -> list[Any]:
+        last: dict = {"used": False, "reason": "no provider in the chain"}
+        for p in self.planners:
+            out = p.propose(site_snapshot, candidate_actions)
+            v = p.last_verdict()
+            if v.get("used"):
+                self._verdict = {**v, "chain": self.name, "answered_by": p.name}
+                return out
+            last = v
+        self._verdict = {**last, "chain": self.name, "chain_exhausted": True}
+        return list(candidate_actions)
+
+
 # ---------------------------------------------------------------------------- seçim
 def get_planner() -> Planner:
     """`HS_PLANNER` = rules | gemini | groq | auto (varsayılan auto).
@@ -280,8 +320,13 @@ def get_planner() -> Planner:
     if choice == "groq" and grq:
         return LLMPlanner("groq", grq)
     if choice == "auto":
+        chain = []
         if gem:
-            return LLMPlanner("gemini", gem)
+            chain.append(LLMPlanner("gemini", gem))
         if grq:
-            return LLMPlanner("groq", grq)
+            chain.append(LLMPlanner("groq", grq))       # düşük gecikme yolu VE yedek sağlayıcı
+        if len(chain) > 1:
+            return ChainPlanner(chain)
+        if chain:
+            return chain[0]
     return RulesPlanner()

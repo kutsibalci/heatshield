@@ -1,0 +1,56 @@
+{
+  "at": "2026-09-09T17:58:55.124540Z",
+  "model": "gemini:gemini-flash-latest → groq:openai/gpt-oss-20b",
+  "calls": [
+    {
+      "call": 1,
+      "ok": true,
+      "ms": 3572,
+      "reason": null
+    },
+    {
+      "call": 2,
+      "ok": true,
+      "ms": 2812,
+      "reason": null
+    },
+    {
+      "call": 3,
+      "ok": false,
+      "ms": 1055,
+      "reason": "model unreachable: HTTPStatusError HTTP 429"
+    },
+    {
+      "call": 4,
+      "ok": false,
+      "ms": 5185,
+      "reason": "model unreachable: HTTPStatusError HTTP 429"
+    },
+    {
+      "call": 5,
+      "ok": false,
+      "ms": 1025,
+      "reason": "model unreachable: HTTPStatusError HTTP 429"
+    },
+    {
+      "call": 6,
+      "ok": false,
+      "ms": 1049,
+      "reason": "model unreachable: HTTPStatusError HTTP 429"
+    },
+    {
+      "call": 7,
+      "ok": false,
+      "ms": 2877,
+      "reason": "model unreachable: HTTPStatusError HTTP 429"
+    },
+    {
+      "call": 8,
+      "ok": false,
+      "ms": 1036,
+      "reason": "model unreachable: HTTPStatusError HTTP 429"
+    }
+  ],
+  "success_rate": "2/8",
+  "median_ms": 3192.0
+}

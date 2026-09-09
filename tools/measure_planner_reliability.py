@@ -19,7 +19,7 @@ for c in (ROOT / ".env", ROOT.parent / ".env"):
         break
 os.environ["HS_PLANNER_TIMEOUT_S"] = "60"        # olcum icin genis; uretim butcesi ayri
 
-from agent.llm_adapter import LLMPlanner          # noqa: E402
+from agent.llm_adapter import get_planner          # noqa: E402
 from rules.heatshield import Action               # noqa: E402
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 10
@@ -30,7 +30,7 @@ plan = [Action({"worker_id": f"W-{i:03d}", "masked": f"+99999***{i:04d}", "score
                "location_verify", "no exit event", i) for i in range(1, 13)]
 snap = {"wbgt_c": 35.6, "legal_limit_c": 32.1, "workers_in_plan": len(plan), "budget_per_sweep": 20}
 
-p = LLMPlanner("gemini", os.environ["GEMINI_API_KEY"])
+p = get_planner()   # zincir varsa zinciri olceriz — uretimde calisan sey bu
 print(f"Model: {p.name}   ornek: {N} cagri\n")
 rows = []
 for i in range(1, N + 1):

@@ -55,12 +55,12 @@ def main() -> None:
     from nac_client import FixtureBackend, NacClient, NacConfig
     from agent import SiteRuntime, apply_geofence_event, new_worker, step
     from agent import policy as P
-    from agent.llm_adapter import LLMPlanner, get_planner
+    from agent.llm_adapter import ChainPlanner, LLMPlanner, get_planner
     from rules import Config
 
     P.reset_planner()
     planner = get_planner()
-    if not isinstance(planner, LLMPlanner):
+    if not isinstance(planner, (LLMPlanner, ChainPlanner)):
         print("Canli planlayici DEVREDE DEGIL. .env icinde GEMINI_API_KEY (ya da GROQ_API_KEY)")
         print("ve HS_PLANNER=auto olmali. Su anki planlayici:", type(planner).__name__)
         sys.exit(1)
