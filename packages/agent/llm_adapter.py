@@ -35,7 +35,13 @@ import httpx
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-DEFAULT_GEMINI_MODEL = os.environ.get("HS_GEMINI_MODEL", "gemini-2.0-flash")
+# 9 Eylul 2026, olculdu: `gemini-2.0-flash` ve `gemini-2.5-flash` yeni hesaplara KAPALI (404,
+# "no longer available to new users"), onerilen `gemini-3.6-flash` ise 503 doner (yogunluk).
+# Bu yuzden takma ada baglaniyoruz. Normalde tam surum sabitlenir; burada bunu yapmamamizin
+# gerekcesi su: modelin ciktisi `guard_plan()` tarafindan YAPISAL olarak denetleniyor.
+# Model degisirse plan uyelugini degistiremez, API secemez, butceyi asamaz — sozlesme sabit.
+# Yani model surumu kayabilir, GUVENLIK OZELLIGI kayamaz. Takma ad bu yuzden guvenli.
+DEFAULT_GEMINI_MODEL = os.environ.get("HS_GEMINI_MODEL", "gemini-flash-latest")
 DEFAULT_GROQ_MODEL = os.environ.get("HS_GROQ_MODEL", "llama-3.3-70b-versatile")
 PLANNER_TIMEOUT_S = float(os.environ.get("HS_PLANNER_TIMEOUT_S", "6"))
 
@@ -233,7 +239,13 @@ class LLMPlanner:
             order = [str(x.get("id")) for x in parsed.get("order", []) if isinstance(x, dict)]
             whys = {str(x.get("id")): str(x.get("why", ""))[:120] for x in parsed.get("order", []) if isinstance(x, dict)}
         except Exception as e:  # zaman aşımı, ağ, bozuk JSON, kota — hepsi aynı yere çıkar
-            self._verdict = {"used": False, "reason": f"model unreachable: {type(e).__name__}",
+            # HTTP durumunu da yaz: "model erişilemedi" bir denetçiye yetmez. 503 (sağlayıcı
+            # yoğun), 429 (kota) ve 404 (model kaldırıldı) çok farklı sorunlar ve defterde
+            # ayırt edilebilmeleri gerekir.
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            detail = f"{type(e).__name__}" + (f" HTTP {status}" if status else "")
+            self._verdict = {"used": False, "reason": f"model unreachable: {detail}",
+                             "http_status": status,
                              "model": self.name, "latency_ms": int((time.monotonic() - t0) * 1000)}
             return candidates
 

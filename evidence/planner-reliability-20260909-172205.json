@@ -1,0 +1,68 @@
+{
+  "at": "2026-09-09T17:22:05.061547Z",
+  "model": "gemini:gemini-flash-latest",
+  "calls": [
+    {
+      "call": 1,
+      "ok": false,
+      "ms": 2461,
+      "reason": "model unreachable: HTTPStatusError"
+    },
+    {
+      "call": 2,
+      "ok": false,
+      "ms": 18511,
+      "reason": "model unreachable: HTTPStatusError"
+    },
+    {
+      "call": 3,
+      "ok": false,
+      "ms": 8687,
+      "reason": "model unreachable: HTTPStatusError"
+    },
+    {
+      "call": 4,
+      "ok": false,
+      "ms": 2305,
+      "reason": "model unreachable: HTTPStatusError"
+    },
+    {
+      "call": 5,
+      "ok": false,
+      "ms": 2358,
+      "reason": "model unreachable: HTTPStatusError"
+    },
+    {
+      "call": 6,
+      "ok": false,
+      "ms": 11792,
+      "reason": "model unreachable: HTTPStatusError"
+    },
+    {
+      "call": 7,
+      "ok": false,
+      "ms": 637,
+      "reason": "model unreachable: HTTPStatusError"
+    },
+    {
+      "call": 8,
+      "ok": false,
+      "ms": 2453,
+      "reason": "model unreachable: HTTPStatusError"
+    },
+    {
+      "call": 9,
+      "ok": false,
+      "ms": 587,
+      "reason": "model unreachable: HTTPStatusError"
+    },
+    {
+      "call": 10,
+      "ok": false,
+      "ms": 620,
+      "reason": "model unreachable: HTTPStatusError"
+    }
+  ],
+  "success_rate": "0/10",
+  "median_ms": null
+}
