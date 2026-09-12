@@ -22,6 +22,14 @@ and stopping when the budget runs out rather than when the list does — then re
 reach instead of assuming they are safe. Every decision, with the signal that triggered it, lands in an evidence
 ledger: the compliance audit trail is itself the product.
 
+**What this claims, precisely.** Every input here is best-effort. A phone can be left in a hut, a battery can die, the
+network can miss a crossing, and our own measurement puts the platform's location uncertainty at **1000 m against a
+500 m site perimeter**. So HeatShield does not claim a safety guarantee and would not be put behind an SLA. What a
+mobile network *can* carry is **evidence**: a timestamped, per-worker, auditable record of who was outdoors, at what
+temperature, at what hour, what was decided and why — plus an honest count of who could not be seen. This is a
+compliance-evidence system that improves safety as a consequence, not a safety system that produces paperwork. The
+distinction decides the architecture, the claims, and who buys it.
+
 ## The six CAMARA APIs
 
 All six are called by the prototype through a single entry point (`packages/nac_client`).
