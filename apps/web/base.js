@@ -6,10 +6,17 @@ async function api(path, body, method) {
   return j;
 }
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+// Kanit degeri: nesneyse `anahtar=deger` ciftleri (JSON'daki tirnaklar juriye gurultu; bosluksuz JSON satir kiramiyordu)
+function fmtValue(v) {
+  if (v === null || v === undefined) return '—';
+  if (Array.isArray(v)) return v.map(fmtValue).join(', ');
+  if (typeof v === 'object') return Object.entries(v).map(([k, x]) => `${k}=${typeof x === 'object' && x !== null ? JSON.stringify(x) : x}`).join(' · ');
+  return String(v);
+}
 function renderExplain(list) {
   if (!list || !list.length) return '';
   return `<div class="explain"><h4>Why this decision? — explain[]</h4><ul>` + list.map(e =>
-    `<li class="${e.triggered ? 'trig' : ''}"><span class="sig">${esc(e.signal)}</span><span>${esc(typeof e.value === 'object' ? JSON.stringify(e.value) : e.value)} — ${esc(e.note)}</span><span class="w">w=${e.weight}${e.source ? ' · ' + esc(e.source) : ''}</span></li>`
+    `<li class="${e.triggered ? 'trig' : ''}"><span class="sig">${esc(e.signal)}</span><span class="val">${esc(fmtValue(e.value))} — ${esc(e.note)}</span><span class="w">w=${e.weight}${e.source ? ' · ' + esc(e.source) : ''}</span></li>`
   ).join('') + `</ul></div>`;
 }
 function badge(level, text) { return `<span class="badge ${level}">${esc(text)}</span>`; }

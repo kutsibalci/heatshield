@@ -30,6 +30,7 @@ from typing import Optional
 
 import httpx
 from fastapi import Body, FastAPI, Header, HTTPException, Query
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from .common import NacFacade, _mask_deep, build_nac, mount_common  # noqa: E402  (sys.path'i de ayarlar)
@@ -821,8 +822,14 @@ def _demo_out(site: SiteRuntime, sweeps: list[dict], scenario: str, headline: st
     return out
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def root():
+    """Çıplak adres arayüze gitsin: jüri (ve kullanıcı) '/demo' ekini bilmiyor. JSON künye /v1/about'ta."""
+    return RedirectResponse(url="/demo", status_code=302)
+
+
+@app.get("/v1/about")
+def about():
     return {"app": "heatshield", "motto": "The network is the sensor; the worker does nothing.", "demo": "/demo", "health": "/health",
             "scenarios": ["heat-day", "collapse", "no-breach", "jurisdiction", "api-down", "planner-guard"],
             "jurisdictions": list(JURISDICTIONS)}

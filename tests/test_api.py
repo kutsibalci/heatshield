@@ -225,7 +225,9 @@ def test_health_and_demo_page(client):
     assert client.get("/health").json()["ok"] is True
     r = client.get("/demo")
     assert r.status_code == 200 and "Verification budget" in r.text
-    assert client.get("/").json()["scenarios"][0] == "heat-day"
+    assert client.get("/v1/about").json()["scenarios"][0] == "heat-day"
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == "/demo"  # çıplak adres arayüze gider
 
 
 # ------------------------------------------------------------------ zamanlayıcı (ajanın kendi saati)

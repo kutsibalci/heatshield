@@ -14,7 +14,8 @@ button{background:var(--accent);color:#04121c;border:0;border-radius:10px;paddin
 .explain{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px}
 .explain h4{margin:0 0 6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
 .explain li{font-size:13px;margin:4px 0;list-style:none;display:flex;gap:8px;align-items:flex-start}
-.explain li .sig{font-family:ui-monospace,Consolas,monospace;color:var(--accent);min-width:150px}
+.explain li .sig{font-family:ui-monospace,Consolas,monospace;color:var(--accent);min-width:150px;flex:0 0 150px}
+.explain li .val{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;word-break:break-word}
 .explain li.trig .sig{color:var(--warn)}.explain li .w{color:var(--muted);font-size:11px;margin-left:auto;white-space:nowrap}
 .explain ul{padding:0;margin:0}
 .kv{display:flex;gap:6px;font-size:13px;color:var(--muted);margin:2px 0}.kv b{color:var(--text)}
