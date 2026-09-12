@@ -806,6 +806,7 @@ def _demo_out(site: SiteRuntime, sweeps: list[dict], scenario: str, headline: st
     out = {
         "scenario": scenario, "headline": headline, "site": site.to_dict(), "sweeps": sweeps,
         "ledger": site.ledger, "coverage": site.coverage(), "degraded": store.degraded[-10:],
+        "presence": site.presence_record(),
         "totals": {
             "queries": site.queries_total,
             "queries_if_polled_everyone": naive["queries"],

@@ -149,7 +149,7 @@
           <li>The default query returns <b>a verdict, not coordinates</b>: "is he inside the zone?" (Location Verification).</li>
           <li>Coordinates only in a <b>probable collapse</b> case, once; only a coarse summary is written to the ledger.</li>
           <li>The lines are issued by the employer; permission is obtained within the operator's consent framework.</li>
-          <li>Continuous location history is <b>never retained</b> (<code>location_history_size: 0</code>).</li>
+          <li id="histLine">The ledger <b>is</b> a per-worker presence record — bounded and counted. Coordinates enter it only after an escalation, once, coarsened to 3 decimals (<code>coordinates_stored: —</code>).</li>
         </ul>
       </div>
       <div class="card" style="margin-top:16px">
@@ -269,6 +269,11 @@ function applySweep(s, data) {
   $('escCount').textContent = (data.totals || {}).escalations ?? (s.escalations || []).length;
 }
 
+function renderPresence(p) {
+  if (!p) return;
+  const n = p.coordinates_stored ?? 0;
+  $('histLine').innerHTML = `The ledger <b>is</b> a per-worker presence record — bounded (${p.ledger_entries} of ${p.ledger_cap} entries) and counted: <b>${n}</b> coordinate${n === 1 ? '' : 's'} stored, each after an escalation and coarsened to 3 decimals. An earlier version of this line claimed "never retained"; the audit showed that was false, so the number is measured now.`;
+}
 async function play(d) {
   lastData = d;
   $('rawPre').textContent = JSON.stringify(d, null, 1);
@@ -283,6 +288,7 @@ async function play(d) {
     : 'No dollar figure is shown: the operator publishes no unit price and we hold no quote.';
   $('costNote').title = cost.basis || '';
   renderGuard(d);
+  renderPresence(d.presence);
   $('cov').textContent = d.coverage.coverage_pct + '%';
   $('covNote').textContent = d.coverage.missing.length ? `Badged in but not visible on the network: ${d.coverage.missing.join(', ')} — a morning reconciliation task` : 'All badged workers are visible on the network.';
   $('degPre').textContent = JSON.stringify(d.degraded || [], null, 1);

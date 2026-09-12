@@ -1,0 +1,16 @@
+# Render.com blueprint — "New → Blueprint → connect this repo" deploys the public demo.
+# Free plan: the instance sleeps after 15 min idle and wakes on the first request (~1 min).
+# Fixture mode: no Nokia credentials exist on the instance, so nothing can be spent or leaked.
+services:
+  - type: web
+    name: heatshield-demo
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NAC_MODE
+        value: fixture
+      - key: HS_SCHEDULER
+        value: "0"
+      - key: HS_PLANNER
+        value: rules

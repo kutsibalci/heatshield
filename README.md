@@ -41,7 +41,7 @@ HeatShield does not establish identity, it measures exposure, and calling those 
 
 ```bash
 python -m pip install -r requirements.txt
-python -m pytest -q                  # 98 tests
+python -m pytest -q                  # 126 tests
 ```
 
 Three modes, selected by `NAC_MODE`:
@@ -147,7 +147,7 @@ statistic in this repository rests on live data. It is the first question we are
 and exit (`apps/api/main.py`). And `maxAge` is **mandatory** on Location Retrieval; without it the platform returns
 422. The freshness axis the cost ladder rides on is the platform's requirement, not our design preference.
 
-What is not in doubt: a working prototype runs today, offline, with 98 automated tests and six one-click demos.
+What is not in doubt: a working prototype runs today, offline, with 126 automated tests and six one-click demos.
 Nothing in this repository is claimed as live that is not. Raw probe output (credentials and MSISDN masked) is in
 [`../_ortak/docs/live-probe/probe-20260909-124244.json`](../_ortak/docs/live-probe/probe-20260909-124244.json), the
 Location Verification radius scan in
