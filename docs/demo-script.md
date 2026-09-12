@@ -17,8 +17,9 @@ Feasibility & API Usage · Agentic AI & Multi-API Orchestration · Presentation)
 
 Page open, nothing pressed, address bar visible.
 
-> "Qatar stops all outdoor work above 32.1 degrees wet-bulb. The law is strong; enforcement is blind. HeatShield
-> answers *who is still outside* with the mobile network — no app, no wearable, nothing the worker has to do."
+> "Qatar stops all outdoor work above 32.1 degrees wet-bulb. The law is strong; enforcement is blind. Nobody can
+> show who was outdoors, at what temperature, at what hour — so causation is never established and liability never
+> arises. HeatShield produces that record from the mobile network. No app, no wearable, nothing the worker does."
 
 ## 0:12–0:25 · `No breach → zero queries` — *Innovation*
 
@@ -99,7 +100,9 @@ Three cards: Qatar prohibited · Saudi Arabia no ban · UAE prohibited.
 
 Final frame, plain text: `heatshield-demo.onrender.com/demo` · `github.com/kutsibalci/heatshield` · *126 tests · 6 CAMARA APIs*.
 
-> "A hundred and twenty-six tests. Six APIs. And not one worker pressed a single button."
+> "A hundred and twenty-six tests. Six APIs. And not one worker pressed a single button. We do not claim a safety
+> guarantee — the inputs are best-effort and we publish their limits. What we produce is the evidence that does not
+> exist today."
 
 ---
 
