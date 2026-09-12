@@ -8,7 +8,7 @@ Hepsi FALSE dönerse sonuç şudur: sandbox'ta bu uç talep edilen alandan bağ�
 veriyor. Taşıma katmanı ve şema kanıtlanır, karar mantığı kanıtlanmaz — ve PARTIAL oranı
 orada ölçülemez.
 
-Çalıştırma (depo kökünden):  python _ortak/tools/verify_lv_discrimination.py
+Çalıştırma (depo kökünden):  python tools/verify_lv_discrimination.py
 """
 from __future__ import annotations
 

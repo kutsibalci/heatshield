@@ -39,16 +39,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-SHARED = Path(__file__).resolve().parent.parent  # _ortak/  — şablon, ortak docs, betikler
-ROOT = SHARED.parent                             # depo kökü — proje klasörleri burada
-sys.path.insert(0, str(SHARED / "_template"))
+SHARED = Path(__file__).resolve().parent.parent  # repository root (heatshield/)
+ROOT = SHARED
+sys.path.insert(0, str(SHARED))                  # packages/ lives at the repository root
 
 from packages.nac_client import NacClient, NacConfig, NacError, mask_phone  # noqa: E402
 from packages.nac_client.client import P  # doğrulanmış path sözlüğü        # noqa: E402
 
 # Yamalanacak projeler. `_template` BİLEREK dışarıda: tablosu yeni projelere kopyalanan
 # boş iskelet ("proje agent'ı doldurur") — sonda sonucuyla kirletilmez.
-PROJECTS = ["warith", "hajiz", "balagh", "rafiq", "heatshield", "arrivalguard", "emanet"]
+PROJECTS = ["heatshield"]
 
 # ---------------------------------------------------------------- sonda tanımları
 
@@ -482,7 +482,7 @@ def write_master_table(results: list[dict], meta: dict, stamp: str, dry: bool) -
 # ---------------------------------------------------------------- rapor
 
 def write_report(results: list[dict], meta: dict, cleaned: list[dict]) -> tuple[Path, Path]:
-    out_dir = SHARED / "docs" / "live-probe"
+    out_dir = SHARED / "evidence"
     out_dir.mkdir(parents=True, exist_ok=True)
     slug = meta["started"].replace(":", "").replace("-", "").replace("T", "-")[:15]
     j = out_dir / f"probe-{slug}.json"
@@ -567,7 +567,7 @@ def main() -> int:
         breaker_threshold=99,  # sonda: bir uçtaki hata diğerlerini kapatmasın
     )
     if args.mode == "live" and not cfg.rapidapi_key:
-        print("HATA: NAC_RAPIDAPI_KEY yok. .env oluştur ya da --mode simulator ile prova yap.", file=sys.stderr)
+        print("ERROR: NAC_RAPIDAPI_KEY is not set. Create .env from .env.example, or rehearse with --mode simulator.", file=sys.stderr)
         return 2
 
     phone = args.phone or os.environ.get("NAC_PROBE_PHONE") or "+905551234567"

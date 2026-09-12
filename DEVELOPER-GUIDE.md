@@ -1,51 +1,65 @@
-# Geliştirici Rehberi — ortak şablon (tüm MENA Ignite projeleri)
+# Developer guide
 
-Her proje klasörü bu şablondan türetildi ve **kendi başına çalışır** (kopyalanıp ayrı repo olarak verilebilir).
+Short orientation for anyone opening this repository cold. The product story is in [README.md](README.md); the design is
+in [docs/architecture.md](docs/architecture.md).
 
-## Klasör yapısı
+## Layout
+
 ```
-<proje>/
-  apps/api/main.py        FastAPI — karar motoru + uçlar + /demo statik arayüz (common.py: health, debug, static)
-  apps/web/index.html     Demo arayüzü (vanilla HTML/JS; base.css + base.js ortak) — build adımı yok, tek tuşla açılır
-  apps/simulator/main.py  Yerel Nokia NaC mock'u — GERÇEK path'ler, FixtureBackend'den veri (değiştirmeyin)
-  packages/nac_client/    Nokia sarmalayıcı — auth, retry, timeout, circuit breaker, maskeleme, 3 mod (değiştirmeyin; ekleme gerekirse client.py'ye metot ekleyin)
-  packages/rules/         Karar kuralları — SAF fonksiyon, yan etkisiz; girdi: sinyal dict'i, çıktı: Decision(explain[])
-  fixtures/profiles.json  Demo/test profilleri (telefon → sinyaller). Şema: packages/nac_client/fixtures.py docstring
-  tests/                  pytest — kurallar fixture'dan beslenir; API uçları TestClient ile
-  docs/api-availability.md  Kullanılan API'lerin path doğrulaması + canlı test durumu
-  run.ps1 / run.sh        Tek tuşla demo (simülatör + API)
+apps/api/main.py        FastAPI service: routes, Scheduler, webhook sink, six demo scenarios
+apps/api/common.py      masking of secrets and phone numbers in every response, shared facade
+apps/web/               the console (index.html, base.js, base.css) — no build step, no CDN
+apps/simulator/         a local mock that serves the real CAMARA paths (NAC_MODE=simulator)
+packages/rules/         pure functions: thresholds, exposure score, budget, cost ladder, verdicts, jurisdictions
+packages/agent/         SiteRuntime / WorkerRuntime state machine, sweep execution, ledger, liveness probe,
+                        roster reconciliation, and the model adapter with guard_plan()
+packages/nac_client/    the single entry point to Nokia Network as Code: auth, retry, circuit breaker, masking,
+                        fixture / simulator / live backends
+fixtures/profiles.json  device profiles the fixture backend answers from (all numbers +99999…, none real)
+tests/                  126 tests, offline by construction (conftest.py strips every key from the environment)
+tools/                  probes and measurements; their output is committed unaltered under evidence/
+evidence/               machine-generated proof for every "verified live" claim
 ```
 
-## Zorunlu tasarım kuralları (spec 0.4)
-1. Nokia çağrıları **yalnızca** `nac_client` üzerinden. `apps/api` içinde `httpx` ile Nokia'ya gitmek yasak.
-2. Her karar `explain[]` üretir (`rules.Explain`): signal, value, weight, note, source, triggered. UI'da gösterilir.
-3. Kurallar saf fonksiyon: `decide(signals: dict, config: Config) -> Decision`. Test fixture'dan beslenir.
-4. Eşikler config'te (`rules/config.py` dataclass + env override), hard-code yok.
-5. Timeout + retry + circuit breaker `nac_client`'ta hazır; API katmanı `NacFacade.call()` ile çağırır. **Fixture'a düşme varsayılan KAPALI** (`NAC_FALLBACK_TO_FIXTURE=1` ile açılır): çöken bir API uydurma veriyle "güvende" hükmü üretemez, `SafeFacade` `source="error(<kind>)"` döndürür. Açıldığında bile `agent.policy._trusted()` bu cevapların bir işçiyi "temizlendi" saymasını engeller.
-6. Loglarda ve API yanıtlarında telefon **maskeli** (`mask_phone`), saklanan alan `hash_phone`.
-7. Demo senaryoları **tek tuşla** tetiklenir (`POST /v1/demo/<senaryo>` veya UI butonu) — jüri önünde elle veri girilmez.
-8. Spec'te olmayan endpoint varsayılmaz; taklit gerekiyorsa kodda `# MOCK:` yorumu.
+## Rules of the house
 
-## Çalıştırma
-```
+1. **No breach, no query.** Any code path that reaches the operator must sit behind a breached site state.
+2. **Rules decide, the model may only re-order.** New behaviour goes into `packages/rules` as a pure function with a
+   test; the model adapter never gains a new power.
+3. **Every operator call goes through `packages/nac_client`.** Never call an endpoint that is not in its verified path
+   table; if something is not available on the platform, mark it `# MOCK:` and say so in the docs.
+4. **Every decision lands in the ledger** with its trigger (`scheduler` / `api` / `demo`), its source and its
+   `explain[]`. If it is not in the ledger, it did not happen.
+5. **Phone numbers are masked at the boundary** and secrets are redacted (`_mask_deep`). Add new secret key names to
+   `_SECRET_KEYS`, not to individual handlers.
+6. **Evidence is not edited to match policy.** Files under `evidence/` are committed as the tools wrote them.
+
+## Running
+
+```bash
 python -m pip install -r requirements.txt
-python -m pytest -q                       # testler
-.\run.ps1 -Mode simulator                 # http://127.0.0.1:8000/demo  (simülatör 8081)
-.\run.ps1 -Mode fixture                   # HTTP yok, tamamen bellek içi
+python -m pytest -q                                   # 126 tests, ~50 s, no network
+python -m uvicorn apps.api.main:app --port 8000       # fixture mode → http://127.0.0.1:8000/demo
+NAC_MODE=simulator ./run.sh simulator                 # mock operator on :8081 with the real CAMARA paths
 ```
-Windows'ta bu makinede Python: `C:\Users\Acer\AppData\Local\Programs\Python\Python313\python.exe`
 
-## nac_client hızlı kullanım
+Live mode needs your own Nokia Network as Code key: copy `.env.example` to `.env`, set `NAC_RAPIDAPI_KEY`, and run
+`python tools/verify_live.py` — it probes the six APIs this product uses and writes the result under `evidence/`.
+
+## Using the client
+
 ```python
-from nac_client import NacClient, NacConfig, FixtureBackend
-c = NacClient(NacConfig(mode="fixture"), fixtures=FixtureBackend.from_json("fixtures/profiles.json"))
-r = c.number_recycling("+905551110001", "2026-01-01")   # r.data == {"phoneNumberRecycled": bool}, r.source, r.latency_ms
-c.unconditional_call_forwarding(p) / c.call_forwardings(p) / c.kyc_tenure(p, "YYYY-MM-DD") / c.kyc_age(p, 18) / c.kyc_match(p, name=...)
-c.number_verify(p) / c.sim_swap_check(p, 72) / c.sim_swap_date(p) / c.device_swap_check(p, 24) / c.device_swap_date(p)
-c.reachability(p) / c.roaming(p) / c.location_retrieve(p) / c.location_verify(p, lat, lng, radius_m) / c.congestion_query(p)
-c.geofence_subscribe(p, lat, lng, r, sink, sink_token=..) / c.geofence_delete(id) / c.reachability_subscribe(p, sink) / c.roaming_subscribe(p, sink)
-c.qod_create(p, "10.0.0.1", "QOS_L") / c.qod_delete(id) / c.consent(p, ["scope"], "purpose")
-```
-Fixture profil alanları için `packages/nac_client/fixtures.py` başındaki docstring'e bak (recycled_date, tenure_since, age_check, sim_swap_at, call_forwarding, reachable, roaming, location{lat,lng,radius}, congestion, latency_ms, fail...).
+from packages.nac_client import NacClient, NacConfig
 
-Simülatör webhook tetikleme (demo): `POST http://127.0.0.1:8081/_sim/emit {"phone": "+974...", "type": "org.camaraproject.geofencing-subscriptions.v0.area-entered"}` → aboneliğin `sink` adresine CloudEvent gönderir.
+nac = NacClient(NacConfig.from_env())            # NAC_MODE decides fixture / simulator / live
+nac.location_verify("+99999000001000", lat=25.38, lng=51.49, radius_m=500, max_age_s=600)
+nac.reachability("+99999000001000")
+nac.congestion_query("+99999000001000")
+nac.geofence_subscribe("+99999000001000", lat=25.38, lng=51.49, radius_m=500,
+                       sink="https://example.com/webhooks/geofence", types=["org.camaraproject.geofencing-subscriptions.v0.area-entered"])
+nac.qod_create("+99999000001000", profile="QOS_E", duration_s=600, app_server_ipv4="203.0.113.10")
+nac.location_retrieve("+99999000001000", max_age_s=60)   # after escalation only — the one call that returns a coordinate
+```
+
+Deliberately unused: SIM/Device Swap, the KYC family, Number Verification. HeatShield measures exposure; it does not
+establish identity, and calling those would violate data minimisation.

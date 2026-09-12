@@ -8,7 +8,7 @@ Location Verification çağırırız. Belirsizlik bölgesi daireyi aşarken PART
 girdiğinde TRUE beklenir. TRUE'ya geçtiği yarıçap, belirsizliğin büyüklüğünü verir.
 
 Çalıştırma (depo kökünden):
-    python _ortak/tools/measure_partial.py
+    python tools/measure_partial.py
 """
 from __future__ import annotations
 

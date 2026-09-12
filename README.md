@@ -54,8 +54,12 @@ Three modes, selected by `NAC_MODE`:
 | `simulator` | A local FastAPI mock on `:8081` serving the **real CAMARA paths** with the same request/response schemas | Exercises the whole HTTP layer offline |
 | `live` | Nokia Network as Code over RapidAPI | Requires your own key (see Configuration) |
 
+```bash
+python -m uvicorn apps.api.main:app --port 8000    # fixture mode: no key, no second server — what the public demo runs
+```
+
 ```powershell
-.\run.ps1 -Mode simulator      # Windows - starts the mock on :8081, API on :8000
+powershell -ExecutionPolicy Bypass -File .\run.ps1 -Mode simulator   # Windows - mock on :8081, API on :8000
 ```
 
 ```bash
@@ -66,14 +70,17 @@ Then open **http://127.0.0.1:8000/demo** for the six one-click demos:
 
 | Demo | Endpoint | What it proves |
 |---|---|---|
-| Hot day (full loop) | `POST /v1/demo/heat-day` | Silent watch → breach → budgeted sweep → collapse → QoD → breach ends |
-| **Collapse, or a flat battery?** | `POST /v1/demo/collapse` | Four silent devices, four different verdicts, one escalation — with the evidence for each |
+| Hot day (full cycle) | `POST /v1/demo/heat-day` | Silent watch → breach → budgeted sweep → collapse → QoD → breach ends |
+| **Collapse, or a dead battery?** | `POST /v1/demo/collapse` | Six devices read as unreachable. One was a stale network reading — a fresh-fix probe proved it alive. Five verdicts of four kinds (collapse, network event, dead battery, left site), one escalation — with the evidence for each |
 | No breach → zero queries | `POST /v1/demo/no-breach` | Two sweeps, zero API calls: purpose limitation, enforced |
 | Three jurisdictions | `POST /v1/demo/jurisdiction` | Same minute, same temperature — Qatar bans, Saudi Arabia permits, the UAE bans |
 | Nokia API down | `POST /v1/demo/api-down` | Circuit breaker opens; **nobody is counted safe**, the ledger records "unknown" |
-| **Planner guard refuses the model** | `POST /v1/demo/planner-guard` | The same breach swept twice: a valid re-ranking is accepted, then the model tries to slip in a worker who is not in the plan and the guard rejects the whole proposal. The provider call is simulated here and the response says so (`simulated_model: true`) — it is not presented as a live model |
+| **Planner guard — the model is overruled** | `POST /v1/demo/planner-guard` | The same breach swept twice: a valid re-ranking is accepted, then the model tries to slip in a worker who is not in the plan and the guard rejects the whole proposal. The provider call is simulated here and the response says so (`simulated_model: true`) — it is not presented as a live model |
 
 Switch jurisdiction with `HS_JURISDICTION=SA` (or `AE`); the default `QA` is the reference implementation.
+
+Code comments and docstrings are partly in Turkish, the author's working language; every user-facing string, the docs,
+the tests and the evidence are in English.
 **Three jurisdictions ship today** (`QA`, `SA`, `AE` in `packages/rules/config.py`). One assumption is stated in
 the config and repeated here: only Qatar publishes a numeric WBGT limit, so **Saudi Arabia and the UAE carry the
 Qatari 32.1 °C figure as a placeholder** while their own midday-ban clocks are their real, published rule. Their
@@ -231,7 +238,8 @@ would want:
 > `W-008: Prior heat incident, unseen long time, high risk`
 
 Then we measured how often it is actually there. On the free tiers of both providers, **2 of 8 calls
-succeeded**; the rest returned HTTP 429 or 503. Gemini alone returned 503 on ten consecutive calls
+succeeded**; the rest returned HTTP 429 (`evidence/planner-reliability-20260909-175855.json`). Earlier the same
+evening ten consecutive Gemini-only calls all failed (`…-172205.json`; the adapter logged 503, the file records only the exception class)
 earlier the same evening. Latency, when it answers, has a median of 3.2 s — inside the 6-second
 budget the agent allows a re-ranker before abandoning it.
 
@@ -247,7 +255,9 @@ absence a non-event.** We would rather show that than a screenshot of one good r
 
 - **No breach, no query authority.** The system cannot become productivity surveillance.
 - The default query returns a **verdict, not a coordinate**. Coordinates only after escalation, once.
-- No continuous location history is kept (`location_history_size: 0`).
+- **Location history is counted, not denied.** The ledger is a bounded per-worker presence record (cap 5,000 entries,
+  `presence_record` in `/v1/state`); post-escalation coordinates are retained as evidence, coarsened to three decimals,
+  and the count is shown on screen. An earlier draft claimed "never retained"; the audit showed that was wrong.
 - Raw MSISDNs appear in no response: masked (`+99999***0001`) plus HMAC-SHA256 hash; logs pass through `MaskingFilter`.
 - **Honest coverage metric:** workers who badge in but never appear on the network are reported as
   `coverage.missing`. A worker without a phone is invisible to us, and we say so rather than hiding it.

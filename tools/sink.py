@@ -8,7 +8,7 @@ Amaç iki şeyi kanıtlamak:
 
 Sadece stdlib kullanır — bağımlılık yok, hiçbir şeyle çakışmaz.
 
-Çalıştırma:   python _ortak/tools/sink.py 8020
+Çalıştırma:   python tools/sink.py 8020
 Sonra:        ngrok http 8020
 """
 from __future__ import annotations

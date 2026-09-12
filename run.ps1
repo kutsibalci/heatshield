@@ -1,7 +1,6 @@
 # Tek tuşla demo: simülatör + API'yi başlatır (NAC_MODE=simulator). Fixture modu için: .\run.ps1 -Mode fixture
 param([string]$Mode = "simulator", [int]$ApiPort = 8000, [int]$SimPort = 8081)
 $py = "python"
-if (Test-Path "C:\Users\Acer\AppData\Local\Programs\Python\Python313\python.exe") { $py = "C:\Users\Acer\AppData\Local\Programs\Python\Python313\python.exe" }
 $env:NAC_MODE = $Mode
 $env:NAC_FIXTURE_PATH = "$PSScriptRoot\fixtures\profiles.json"
 if ($Mode -eq "simulator") {
