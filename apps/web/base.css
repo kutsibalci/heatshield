@@ -50,7 +50,8 @@ header{ padding-top:10px !important; padding-bottom:12px !important; }
 
 .card .lbl, .lbl{ font-size:10.5px !important; letter-spacing:.16em !important;
   color:#8FA3BC !important; font-weight:600 !important; }
-.val{ font-size:46px !important; line-height:1 !important; letter-spacing:-1.5px !important; }
+/* .val kurali kaldirildi: explain[] satirlari da .val kullaniyor, hepsini devlestiriyordu.
+   Sicaklik degeri artik .strip .temp ile boyutlaniyor (index.html). */
 #qTotal{ font-size:40px !important; line-height:1.05 !important; font-weight:700 !important;
   letter-spacing:-1px !important; display:block; margin-bottom:2px; }
 
