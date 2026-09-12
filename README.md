@@ -17,7 +17,7 @@ assumptions. It treats the operator network as the sensor: a geofence subscripti
 and needs nothing running on the device, so while no threshold is breached the agent spends zero queries. The moment
 WBGT crosses the legal limit the site enters alert state and the agent earns the authority to verify — ranking every
 worker with no recorded exit by `severity × exposure_minutes × staleness × vulnerability`, spending a fixed
-per-minute query budget from the top of that list, climbing the cost ladder only when the cheap signal is ambiguous,
+per-sweep query budget from the top of that list, climbing the cost ladder only when the cheap signal is ambiguous,
 and stopping when the budget runs out rather than when the list does — then reporting how many workers it could not
 reach instead of assuming they are safe. Every decision, with the signal that triggered it, lands in an evidence
 ledger: the compliance audit trail is itself the product.
@@ -100,8 +100,22 @@ ever marked "cleared" on a response the agent does not trust.
 Detail: [`docs/architecture.md`](docs/architecture.md) · [`docs/api-availability.md`](docs/api-availability.md) ·
 [`docs/demo-script.md`](docs/demo-script.md)
 
-Tests: `tests/test_rules.py` (26) · `tests/test_policy.py` (23) · `tests/test_planner.py` (23) ·
-`tests/test_api.py` (18) · `tests/test_nac_client.py` (8) — **98 total**.
+Tests: `tests/test_rules.py` · `tests/test_policy.py` · `tests/test_planner.py` · `tests/test_api.py` ·
+`tests/test_nac_client.py` — **126 total** (parametrised cases included), all offline.
+
+## Why this is not the GSMA catalogue use case
+
+GSMA Open Gateway already lists a *Worker Safety Monitoring* use case built on Device Geofencing Subscriptions, Device
+Location Retrieval and SMS: it tells an employer who is where. HeatShield shares the API family and departs from it in
+three places. **The trigger is a legal number, not a schedule** — below the WBGT limit the agent has no authority to
+query anyone, and that is enforced in code. **The default query is Location Verification**, a yes/no verdict, not
+Retrieval — a coordinate is requested once, after an escalation, and coarsened before it is stored. **The hard part is
+not the calls but their allocation** — a per-sweep budget spent in risk order with a starvation guard, and the
+collapse-versus-dead-battery classification that keeps a medic from being paged for every flat phone. The catalogue
+scenario is a location tool; this is a compliance-evidence producer that spends location queries as sparingly as the law
+allows. Wearables (Kenzen at EGA, viAct's watch) measure the body better than a network ever will and cost a charged,
+worn device per worker; HeatShield measures presence under a legal threshold with zero hardware. Complementary, not
+substitutes.
 
 ## Honesty: what is verified live, and what is not
 
@@ -151,9 +165,9 @@ and exit (`apps/api/main.py`). And `maxAge` is **mandatory** on Location Retriev
 
 What is not in doubt: a working prototype runs today, offline, with 126 automated tests and six one-click demos.
 Nothing in this repository is claimed as live that is not. Raw probe output (credentials and MSISDN masked) is in
-[`../_ortak/docs/live-probe/probe-20260909-124244.json`](../_ortak/docs/live-probe/probe-20260909-124244.json), the
+[`evidence/probe-20260909-124244.json`](evidence/probe-20260909-124244.json), the
 Location Verification radius scan in
-[`../_ortak/tools/partial-scan-20260909-124602.json`](../_ortak/tools/partial-scan-20260909-124602.json), and the
+[`evidence/partial-scan-20260909-124602.json`](evidence/partial-scan-20260909-124602.json), and the
 endpoint-by-endpoint record in [`docs/api-availability.md`](docs/api-availability.md).
 
 **On WBGT — and this is the biggest gap in the prototype.** The product does not measure WBGT, it consumes it.
@@ -174,6 +188,7 @@ Claims about scale are easy to make and easy to check, so we checked ours.
 | 400-worker sweep | 47 ms |
 | 20,000 workers in memory | 90 MB (~3 KB per worker) |
 | **Full coverage ceiling** | **~110 workers per site** at 20 queries/sweep, 2-minute cadence |
+| Silence → medic notified and a QoD session opened | **within the same sweep** — ≤ 2 min cadence in a severe breach, ≤ 10 min marginal (heat-day scenario). The paper log it replaces is signed at the end of the shift |
 | 8-hour shift, 400 workers | 7,341 ledger rows / 13.9 MB — the ledger is now bounded and counts what it drops |
 
 CPU and memory are not the limit; the budget policy is. Beyond ~110 workers a site should be

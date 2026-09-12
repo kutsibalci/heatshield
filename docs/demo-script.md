@@ -1,99 +1,112 @@
-# HeatShield — 3 dakikalık video senaryosu
+# HeatShield — 3-minute video script
 
-**Süre:** 3:00 · **Ekran:** `http://127.0.0.1:8000/demo` · **Dil:** İngilizce anlatım (jüri uluslararası)
+**Length:** 3:00 · **Screen:** `https://heatshield-demo.onrender.com/demo` (the public instance — the address bar is part
+of the evidence) or `http://127.0.0.1:8000/demo` locally · **Narration:** English · **Pace:** open the page with
+`?pace=5000` so each sweep stays on screen for five seconds; the default 1.5 s is too fast to narrate.
 
-**Başlatma** (PowerShell, `heatshield/` içinden — `run.ps1` yürütme politikasına takılıyor, doğrudan çağır):
-```powershell
-& "C:\Users\Acer\AppData\Local\Programs\Python\Python313\python.exe" -m uvicorn apps.api.main:app --port 8000
-```
+**Before recording:** open the page once and press *Hot day* so the free instance is awake · press **Clear screen** ·
+open the *Under the hood* panel at the bottom right and leave it open · browser zoom 100 %, F11 · notifications off.
+Buttons are disabled while a scenario replays; wait for "✓ Replay finished" before pressing the next one.
 
-**Kayıttan önce:** `Sıfırla`'ya bas · tarayıcı %100 zoom · tam ekran (F11) · bildirimleri kapat.
-Her senaryo kendi sahasını sıfırdan kurar; sırayı bozmadan tek çekimde gitmeyi dene, bozulursa
-`Sıfırla` ve o senaryodan devam.
-
----
-
-## 0 · Açılış — 0:00–0:15
-
-Ekranda demo sayfası, henüz hiçbir butona basılmamış.
-
-> "Qatar stops all outdoor work when the wet-bulb globe temperature passes 32.1 degrees. The law is
-> strong; the enforcement is blind. Nobody can answer, in real time, which worker is still outside.
-> HeatShield answers it with the mobile network — no app, no wearable, nothing the worker has to do."
-
-## 1 · `İhlal yok → sıfır sorgu` — 0:15–0:30
-
-Bas. İki tarama çalışır, bütçe kutuları boş, **toplam sorgu 0**.
-
-> "Below the threshold the system has no authority to query anyone. Two sweeps, zero API calls.
-> That is a legal design, not an optimisation: this cannot quietly become a surveillance tool."
-
-## 2 · `Sıcak gün (tam döngü)` — 0:30–1:25
-
-Bas. Altı tarama sırayla oynar. Üç yerde dur:
-
-| Ekranda | Söyle |
-|---|---|
-| 10:15 — çevre kırmızı, bütçe kutuları dolar, **kesikli kırmızı kutular** | "Breach. Budget: twenty queries. We spend the budget, not the list — and the report names the workers that had to wait." |
-| 10:25 — sıralama tablosu değişir | "Second sweep: the worker just verified drops back; the one unseen for twenty minutes moves up. And a worker never queried in this breach beats anyone already checked — we found a starvation bug by measurement, and this is the fix." |
-| 10:37 — beyaz halkalı kırmızı nokta, QoD kartı | "One device went silent. Escalation: the medic, guaranteed bandwidth, and only now a coordinate — once, for the place the medic has to run to." |
-
-Sağ üstteki maliyet kartını imleçle göster: toplam sorgu vs herkesi her taramada yoklamak.
-
-## 3 · `Bayılma mı, bitmiş pil mi?` — 1:25–2:05
-
-Bas. Dört sessiz cihaz, dört kart, `explain[]` açık.
-
-> "This is where products like this die: treat every silent phone as an emergency and the site
-> switches you off within a week."
-
-İmleçle sırayla göster:
-
-| Kart | Söyle |
-|---|---|
-| W-002 — **probable collapse 0.95** | "Alone, neighbours still reachable, congestion low, online for eight hours straight. This one goes to a human." |
-| W-003 / W-004 — ağ olayı | "Two devices in the same micro-zone went dark together and the cell reports high congestion. Network event — nobody is woken." |
-| W-005 — bitmiş pil | "Same silence, same hour, every day. Battery." |
-| W-006 — sahadan ayrıldı | "Last seen at the exit gate, heading out. Logged, nothing more." |
-
-> "Four silent devices, one escalation. No extra sensor — evidence we already had."
-
-## 4 · `Planner guard` — 2:05–2:25
-
-Bas. İki satır görünür: kabul edilen yeniden sıralama, sonra **reddedilen** öneri.
-
-> "A language model sits under the rules. It may re-order the plan the rules produced — nothing else.
-> Here it re-ranks validly, then tries to widen the plan, and the guard refuses the whole proposal.
-> Both outcomes go to the ledger. A guard you never see refuse is not a guard."
-
-## 5 · `Nokia API çöktü` — 2:25–2:40
-
-Bas. Devre kesici açık, çağrılar `error(server)`, **kimse "doğrulandı" değil**, defter "unknown".
-
-> "When the operator API fails, nobody is marked safe. The ledger says unknown, and the workers stay
-> in the queue. In a safety system, optimism cannot be the default."
-
-## 6 · Kapanış — kanıt defteri — 2:40–3:00
-
-Sol alttaki defteri yavaşça kaydır.
-
-> "The product is this ledger: which worker, which minute, what temperature, what evidence, what
-> decision. Six CAMARA APIs, all six verified live on Nokia Network as Code. A hundred and
-> twenty-six tests. And not one worker pressed a single button."
-
-Son kare: depo adresi `github.com/kutsibalci/heatshield` ekranda 2 sn.
+Every scene names the criterion it is there for (Innovation · Impact · Scalability & Commercial · Technical
+Feasibility & API Usage · Agentic AI & Multi-API Orchestration · Presentation).
 
 ---
 
-## Kesilenler ve neden
+## 0:00–0:12 · Opening — *Impact*
 
-- **Üç yargı alanı** senaryosu çıkarıldı (30 sn) — deck'te ve Idea Capture'da anlatılıyor, videoda
-  vakit yok. İstersen kapanışta tek cümle: "Saudi Arabia and the UAE are a configuration entry."
-- Açılış 25 → 15 sn. Jüri problemi biliyor; çözümü görmek istiyor.
+Page open, nothing pressed, address bar visible.
 
-## Yedek plan
+> "Qatar stops all outdoor work above 32.1 degrees wet-bulb. The law is strong; enforcement is blind. HeatShield
+> answers *who is still outside* with the mobile network — no app, no wearable, nothing the worker has to do."
 
-- Port doluysa: `Get-CimInstance Win32_Process | ? CommandLine -match uvicorn | % { Stop-Process -Id $_.ProcessId -Force }`
-- İnternet yoksa sorun yok: varsayılan `NAC_MODE=fixture`, her şey aynı çalışır.
-- Ekran karışırsa `Sıfırla` — her senaryo kendi sahasını kurar (idempotent).
-- Ses kötü çıkarsa: sessiz çek, anlatımı altyazı olarak ekle. Jüri metni okur, mikrofon kalitesini değil.
+## 0:12–0:25 · `No breach → zero queries` — *Innovation*
+
+Two sweeps, budget boxes empty, total queries 0.
+
+> "Below the threshold the agent has no authority to query anyone. Two sweeps, zero API calls. That is law in code,
+> not an optimisation."
+
+## 0:25–0:40 · `Hot day (full cycle)`, sweep 10:15 — *Agentic AI*
+
+Perimeter turns red, budget boxes fill, dashed red boxes appear.
+
+> "Breach. Twenty ranked verifications a sweep. We spend the budget, not the list — and the report names the workers
+> who had to wait."
+
+## 0:40–0:55 · sweep 10:25 — *Multi-API Orchestration*
+
+Ranking table changes; the *Under the hood → calls in this sweep* panel shows `location-verification`,
+`device-reachability-status`, `congestion-insights`, `quality-on-demand` side by side.
+
+> "Second sweep. Whoever was never queried in this breach goes first — a starvation bug we found by measurement. One
+> device went silent: reachability, then congestion for the cell, then guaranteed bandwidth for the medic. Four CAMARA
+> APIs in one sweep, each chosen by the rules."
+
+## 0:55–1:12 · sweeps 10:35 → 10:37 — *Agentic AI · Impact · Privacy*
+
+WBGT 35.4, state *emergency*, cadence 2 min; red dot with a white ring; ledger row `location_retrieve`.
+
+> "Severe: the cadence tightens to two minutes. Only now a coordinate — once, coarsened, for the place the medic has to
+> run to. From silence to medic: the same sweep."
+
+## 1:12–1:45 · `Collapse, or a dead battery?` — *Innovation · Multi-API*
+
+Verdict cards stay on screen for the whole breach. Point at each:
+
+| Card | Say |
+|---|---|
+| W-002 — **probable collapse 0.95** | "Alone in its zone, neighbours reachable, congestion low, online for eight hours straight. This one goes to a human." |
+| W-003 / W-004 — network event | "Two devices in the same micro-zone went dark together and the cell reports high congestion. Network event — nobody is woken." |
+| W-005 — dead battery | "Same silence, same hour, every day. Battery." |
+| W-006 — left the site | "Last seen at the exit gate, heading out. Logged, nothing more." |
+| W-013 — liveness probe | "And a sixth phone the network called unreachable: we forced a fresh fix, it answered — alive. The stale reading was overruled. The cost ladder doubles as a liveness probe." |
+
+> "Six silent devices, one human woken. No extra sensor — evidence we already had."
+
+## 1:45–2:05 · `Planner guard` — *Agentic AI*
+
+Two cards: *Proposal 1 ACCEPTED*, *Proposal 2 REJECTED*.
+
+> "A language model sits under the rules: it may re-order the plan, nothing else. Here it re-ranks validly, then tries
+> to add a worker, and the gate refuses the whole proposal. The provider is simulated behind this button; the live run
+> against Gemini and Groq is committed under evidence/, with the 2-of-8 availability we measured."
+
+## 2:05–2:17 · `Nokia API down` — *Technical Feasibility*
+
+Red banner "Operator API degraded", ledger rows "NO ANSWER — counted as UNKNOWN, not as safe".
+
+> "When the operator API fails, nobody is marked safe. Unknown is not safe."
+
+## 2:17–2:35 · Evidence ledger + GitHub `evidence/README.md` — *Feasibility & API Usage*
+
+Scroll the ledger slowly (times in site local time, `trigger` badge on every row). Then a new tab, five seconds:
+`github.com/kutsibalci/heatshield/blob/main/evidence/README.md` — the six-APIs-returned-200 table.
+
+> "The product is this ledger: which worker, which minute, what temperature, what evidence, what decision. All six
+> CAMARA APIs returned 200 on the live Nokia platform on 9 September; the raw output is committed unaltered, including
+> the three results we do not round up."
+
+## 2:35–2:50 · `Three jurisdictions` — *Scalability & Commercial*
+
+Three cards: Qatar prohibited · Saudi Arabia no ban · UAE prohibited.
+
+> "Saudi Arabia and the UAE are a configuration entry. The buyer is the contractor who already carries the legal
+> exposure; the price is per worker-month, and the operator earns two live subscriptions per worker for the length of
+> employment."
+
+## 2:50–3:00 · Closing card — *Presentation*
+
+Final frame, plain text: `heatshield-demo.onrender.com/demo` · `github.com/kutsibalci/heatshield` · *126 tests · 6 CAMARA APIs*.
+
+> "A hundred and twenty-six tests. Six APIs. And not one worker pressed a single button."
+
+---
+
+## If something goes wrong
+
+- Port busy locally: `Get-CimInstance Win32_Process | ? { $_.Name -eq 'python.exe' -and $_.CommandLine -match 'uvicorn' } | % { Stop-Process -Id $_.ProcessId -Force }`
+- Public instance asleep: the first request after idle takes up to a minute — open the page before you press record.
+- No internet: the local server runs everything from fixtures, identical output.
+- Bad microphone: record silent and add the narration as subtitles. The jury reads the text, not the mic.
+- Screen cluttered: **Clear screen** — it only clears the page; every scenario rebuilds its own site on the server.

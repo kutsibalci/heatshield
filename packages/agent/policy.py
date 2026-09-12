@@ -433,8 +433,7 @@ def _liveness_probe(site: SiteRuntime, w: WorkerRuntime, now: datetime, nac, cfg
         # UNKNOWN ana yolda da "güvenilir sinyal değil" sayılıyor (bkz. location_verify dalı).
         # Aynı cevabın burada canlılık kanıtı olması doğrudan çelişkiydi.
         site.log(now, "liveness_unknown",
-                 f"Liveness probe returned nothing usable (result={res}, source={source}) — the device is "
-                 f"NOT counted as alive",
+                 f"Liveness probe: no usable answer ({res}) — the device is NOT counted as alive",
                  worker=w, source=source)
         return None
     if future:
@@ -457,8 +456,8 @@ def _liveness_probe(site: SiteRuntime, w: WorkerRuntime, now: datetime, nac, cfg
                  worker=w, source=source, extra={"answer_age_s": round(age_s, 1)})
         return None
     site.log(now, "liveness_confirmed",
-             f"The device answered a fresh-fix request {age_s:.0f}s ago — it responded to paging, so this is not a "
-             f"collapse. The stale reachability reading is overruled by a fresher signal",
+             f"The device answered a fresh-fix request just now (fix age {age_s:.0f} s, limit {max_age * 2} s) — it responded "
+             f"to paging, so this is not a collapse; the stale reachability reading is overruled",
              worker=w, source=source, extra={"answer_age_s": round(age_s, 1)})
     return True
 
@@ -667,7 +666,9 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                                     "reason": act.reason, "freshness": act.freshness, "max_age_s": max_age,
                                     "last_location_time": (data or {}).get("lastLocationTime")})
             rung = "rung 3, fresh fix demanded" if strict else "rung 2, cached answer accepted"
-            site.log(now, "location_verify", f"Inside the zone? → {res} ({rung}; coordinates NOT requested)",
+            shown = (f"NO ANSWER — operator API error ({source}); counted as UNKNOWN, not as safe" if res is None
+                     else f"{res} ({rung}; coordinates NOT requested)")
+            site.log(now, "location_verify", f"Inside the zone? → {shown}",
                      worker=w, source=source, explain=act.explain,
                      extra={"pool": act.pool, "freshness": act.freshness, "max_age_s": max_age,
                             "last_location_time": (data or {}).get("lastLocationTime")})
@@ -687,7 +688,9 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                 unreachable_now.append(w)
             report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "device-reachability-status",
                                     "pool": act.pool, "result": reachable, "source": source, "latency_ms": ms, "reason": act.reason})
-            site.log(now, "reachability", f"Is the device reachable? → {reachable}", worker=w, source=source, explain=act.explain)
+            shown_r = ("yes" if reachable else "NO — the device went silent" if reachable is False
+                       else f"NO ANSWER — operator API error ({source}); counted as unknown")
+            site.log(now, "reachability", f"Is the device reachable? → {shown_r}", worker=w, source=source, explain=act.explain)
         elif act.api == "location_retrieve":
             data, source, ms = _call(nac, "location_retrieve", w.phone, cfg.budget.strict_max_age_s)
             area = (data or {}).get("area") or {}

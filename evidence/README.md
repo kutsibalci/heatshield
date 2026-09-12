@@ -10,6 +10,8 @@ committed **unaltered**.
 | `lv-discrimination-20260909-130240.json` | Location Verification returns `FALSE` regardless of the area requested — including a **200 km circle centred on the coordinate Location Retrieval had just returned**. Also records that `maxAge` is mandatory: the call without it returns 422. |
 | `lv-diagnosis-20260909-143413.json` | Elimination of two explanations for the above: coordinate order and sign (five variants, all `FALSE`) and device identifier mismatch (byte-identical in both calls). What remains is a sandbox question, put to Nokia. |
 | `partial-scan-20260909-124602.json` | Verification across radii from 100 m to 5 km, at both loose and strict freshness. The platform reports an uncertainty radius of **1000 m** — the same order as a 500 m site perimeter. |
+| `live-planner-20260909-*.json` (6 runs) | The planner pointed at the **live** model chain (Gemini → Groq) on 9 September, with the CAMARA calls answered from the local fixture so that what is measured is the model itself. Each file records the rules' order, the model's proposed order, the guard's verdict (accepted / which rule it broke), latency and the model's one-line rationale per worker. The prompt carries **no phone number, no name and no coordinate**. |
+| `planner-reliability-20260909-*.json` (2 runs) | Availability of the model chain on the providers' free tiers: **2 of 8 calls succeeded**, the rest returned HTTP 429 or 503; median latency when a model does answer, **3.2 s**. This is why the chain ends in the deterministic rules and why the ledger records every fallback. |
 
 ## Why the coordinates in here are not coarsened
 

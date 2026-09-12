@@ -14,3 +14,12 @@ services:
         value: "0"
       - key: HS_PLANNER
         value: rules
+      # Webhook/reset bearer: generated per deploy so the public instance never runs on the dev default.
+      # The console does not need it (Clear screen is client-side; scenarios reset their own site).
+      - key: WEBHOOK_TOKEN
+        generateValue: true
+      # Anonymous-creation caps for a 512 MB free instance (measured: ~5.3 KB per worker).
+      - key: HS_MAX_SITES
+        value: "50"
+      - key: HS_MAX_WORKERS_PER_SITE
+        value: "500"

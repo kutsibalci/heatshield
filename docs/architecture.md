@@ -1,124 +1,138 @@
-# HeatShield — Mimari
+# HeatShield — Architecture
 
-## 1. Tek cümle
+**One sentence.** The mobile network is the sensor: a geofence subscription per worker delivers presence for free, and
+only while a legal heat threshold is breached does the agent earn the authority to spend paid queries — ranked, budgeted,
+and written to an evidence ledger that is itself the product.
 
-Yasal WBGT eşiği aşıldığı anda ajan **sorgu yetkisi kazanır**, sahadaki her işçiyi maruziyet skoruna göre sıralar,
-dakikalık bütçesini tepeden harcar, susan cihazları bayılma / ağ / pil / çıkış diye ayırır ve yalnızca hayatta kalan
-vakayı bir insana götürür — hepsini zaman damgalı bir kanıt defterine yazarak.
+This document describes what runs in this repository today. Anything on the roadmap is labelled as such.
 
-## 2. Katmanlar
+## 1. The loop
 
-```
-apps/api/main.py            FastAPI — saha/işçi kayıtları, geofence webhook'u, tarama ucu, 5 tek-tuş demo, SafeFacade
-  └── agent/policy.py       Tarama motoru: SiteRuntime / WorkerRuntime / step() — sıra, durum ve Nokia çağrıları
-        └── rules/heatshield.py   SAF fonksiyonlar: site_state, exposure_score, plan_verification,
-        │                          classify_unreachable, escalate  (ağ yok, saat parametre, explain[] üretir)
-        └── rules/config.py       Jurisdiction (QA/SA/AE) + bütçe + kırılganlık + distress eşikleri (HS_* env)
-  └── nac_client/           TEK Nokia giriş noktası (auth, retry, circuit breaker, maskeleme, 3 mod)
-apps/simulator/             Nokia SIMULATOR'ün yerel taklidi (gerçek path'ler + /_sim/emit)
-apps/web/index.html         Vanilla HTML/JS konsol (build yok, CDN yok)
-```
-
-Nokia çağrısı **yalnızca** `nac_client` üzerinden. Politika motoru bile `nac_facade.call(<metot>)` kullanır; testlerde
-facade değiştirilerek tüm tarama mantığı ağsız koşulur.
-
-## 3. Ajan döngüsü (idea capture §5.2)
-
-```
-   ┌──────────────── pasif izleme (passive_watch) ────────────────┐
-   │  Geofencing Subscriptions → area-entered / area-left          │  ÜCRETSİZ
-   │  WBGT beslemesi                                               │  sorgu yetkisi YOK
-   └───────────────────────────┬───────────────────────────────────┘
-                               │ site_state(): WBGT > 32.1 °C  VEYA  yaz yasağı saati
-                               ▼
-                          alert  ── exposure_score() ─▶ sıralama
-                               │        severity × exposure_minutes × staleness × vulnerability
-                               ▼
-                     plan_verification()  ── bütçe: 20 sorgu/tarama, %10 rezerv
-                               │   ① location_verify  (ucuz, evet/hayır)
-                               │   ② reachability     (yalnızca "içeride" doğrulananlar)
-                               │   ③ location_retrieve(YALNIZCA eskalasyon sonrası)
-                               ▼
-                        confirming ──▶ susan cihaz ──▶ classify_unreachable()
-                                                        küme testi + tıkanıklık + cihaz geçmişi + yörünge
-                               ┌───────────────┬───────────────┬──────────────┐
-                        probable_collapse  probable_network  probable_battery  probable_left
-                               │                │                 │               │
-                     notify_medic + QoD    log_only(+dilim)   süpervizöre     log_only
-                        (distress → emergency)
+```mermaid
+flowchart LR
+    WBGT[WBGT feed<br/>per site] --> STATE[site_state<br/>rules/heatshield.py]
+    GEO[Geofence CloudEvents<br/>area-entered / area-left] --> RT[SiteRuntime<br/>agent/policy.py]
+    ROSTER[Shift roster<br/>badge-in list] --> RT
+    STATE --> RT
+    RT -->|breach| RANK[rank + plan_verification<br/>score = severity × exposure × staleness × vulnerability<br/>budget per sweep, reserve, starvation guard]
+    RT -->|no breach| IDLE[no authority to query<br/>zero paid calls]
+    RANK --> GUARD[guard_plan<br/>agent/llm_adapter.py]
+    LLM[Gemini → Groq<br/>may only re-order] -.proposal.-> GUARD
+    GUARD --> EXEC[execute plan<br/>cost ladder on the freshness axis]
+    EXEC --> NAC[(Nokia Network as Code<br/>6 CAMARA APIs via packages/nac_client)]
+    NAC --> VERD[verdicts<br/>collapse / network / battery / left / prolonged exposure]
+    VERD --> ESC[escalation<br/>medic · QoD session · one coarse coordinate]
+    EXEC --> LEDGER[(evidence ledger<br/>every decision, its signal, its trigger)]
+    VERD --> LEDGER
+    ESC --> LEDGER
+    SCHED[Scheduler<br/>apps/api/main.py] -->|sweep_due: 2 min severe / 10 min marginal| RT
 ```
 
-## 4. Doğrulama bütçesi politikası (§8) — ürünün asıl zorluğu
+Two layers, and the order between them is the design:
 
-400 kişilik bir sahayı dakikada tek tek yoklamak mümkün değil. Ajan üç hamle yapar:
+| Layer | Where | What it does | What it cannot do |
+|---|---|---|---|
+| **Rules** | `packages/rules/heatshield.py`, `config.py` | Pure functions: threshold and ban-hours per jurisdiction, exposure score, budget allocation, cost ladder, verdict classification | Nothing side-effectful — no I/O, no clock |
+| **Agent** | `packages/agent/policy.py` | State machine per site and per worker; executes the plan against the operator; liveness probe; roster reconciliation; ledger; escalation | Invent a query outside a breach |
+| **Model (optional)** | `packages/agent/llm_adapter.py` | Proposes a **permutation** of the plan the rules produced, with a rationale per worker | Add, drop or repeat a worker; choose an API; exceed the budget; touch a verdict |
+| **Operator client** | `packages/nac_client` | Single entry point for the six CAMARA APIs: auth, timeout, retry, circuit breaker, phone masking; `fixture` / `simulator` / `live` backends | — |
+| **API + console** | `apps/api/main.py`, `apps/web/` | FastAPI service, scheduler, webhook sink, six one-click demo scenarios, the console | — |
 
-**Move 1 — İhlal yoksa hiçbir şey harcama.** Geofence olayları şebeke tarafından itilir, bedava. Sorgu yetkisi
-yalnızca yasal ihlalde doğar. Bu aynı zamanda hukuki tasarım: sistem sessizce üretkenlik gözetimine dönüşemez.
+## 2. States
 
-**Move 2 — Sırala, tepeden harca, bütçe bitince dur.**
-```
-score = severity × exposure_minutes × staleness × vulnerability
-```
-| Çarpan | Anlamı | Nereden |
+**Site:** `passive_watch` → `alert` (marginal breach, 10-minute sweeps) → `emergency` (severe breach, 2-minute sweeps) →
+back to `passive_watch` when the breach ends (`site_cleared`: open cases are closed as *unresolved*, never as *safe*).
+
+**Worker:** `inside` (geofence entry or roster prior) → `confirming` (a verification is planned) → `verified_inside` /
+`cleared` (exit event or verified outside) / `distress` (silent inside a breached zone) → `escalated` (medic dispatched).
+A stale exit is a silent failure mode, so about a tenth of every sweep's budget is reserved to re-check presumed-safe
+workers.
+
+## 3. The verification budget (the hard part)
+
+A 400-worker site under a breach cannot be polled exhaustively. Per sweep the agent holds a fixed number of paid queries
+and allocates them in four moves:
+
+1. **Spend nothing until you must.** Below the legal threshold there is no authority to query; presence is built from
+   free geofence events only. This is enforced in code (`policy.step`), not in a policy document.
+2. **Rank, then spend from the top.** `score = severity × exposure_minutes × staleness × vulnerability`. First-week
+   workers, prior heat incidents and night-to-day shift changes raise vulnerability. The budget is spent down the list and
+   the sweep stops when the budget ends, not when the list does — the report names who could not be reached.
+3. **Climb the cost ladder only when the cheap signal is ambiguous.** The ladder runs on the *freshness* axis, which is
+   where the operator's cost sits: geofence push (free) → Location Verification with a loose `maxAge` (cached, cheap) →
+   Location Verification with a strict `maxAge` (forces a fresh fix, expensive) → Location Retrieval (a coordinate, once,
+   after escalation — justified by privacy, not cost).
+4. **Nobody waits forever.** A worker not yet queried in this breach outranks anyone already checked. Found by measurement:
+   without it, 80 % of a 400-worker site was never queried once in a two-hour breach.
+
+Measured on this code: a 400-worker sweep takes 47 ms and 20 000 workers fit in 90 MB — CPU and memory are not the
+limit; the budget policy is. Full coverage holds to about **110 workers per site** at 20 queries per sweep on a
+two-minute cadence. Larger sites are sub-sites with their own budgets.
+
+## 4. Collapse, or a dead battery?
+
+An unreachable device usually means a flat battery, a coverage hole or a switched-off phone. Escalating every one of them
+produces alarm fatigue and gets the system switched off within a week. `classify_unreachable` separates the cases with
+evidence already on hand:
+
+| Test | Signal | Verdict it supports |
 |---|---|---|
-| `severity` | WBGT limitin ne kadar üstünde (32.4 °C ile 36 °C aynı acil durum değil) | `site_state()` |
-| `exposure_minutes` | İhlal başlangıcından beri temizleyici sinyal yok | ihlal saati |
-| `staleness` | Son güvenilir sinyalden bu yana geçen süre (30 dk'da tavan) | işçi durumu |
-| `vulnerability` | İlk hafta 2.0 · önceki olay 1.5 · vardiya geçişi 1.3 · varsayılan 1.0 | işçi kaydı |
+| Cluster | several devices in one micro-zone dark together + Congestion Insights `High` | network event — nobody is woken, a slice is requested *(slicing is `# MOCK`, roadmap)* |
+| Device history | a silence window that repeats daily | dead battery — supervisor informed |
+| Trajectory | last verified position moving toward the exit | left the site — logged only |
+| Continuity | online for hours, then dark, stationary, at peak WBGT | **probable collapse** — medic, QoD session, one coordinate |
+| Liveness probe | a strict-freshness location query forces the network to page the device; if it answers, it is alive | overrules a stale reachability reading |
+| Prolonged exposure | device answering, worker inside for more than 45 minutes of breach | prolonged exposure — supervisor check |
 
-Bütçe bitince **liste bitmese de durulur** ve kaç işçinin sorgulanmadığı hem rapora hem deftere yazılır
-(`budget_exhausted`). Ekranda kesikli kırmızı kutular bunu gösterir — sessiz kırpma yok.
+Only the surviving case reaches a human. Every verdict carries `explain[]`: signal, value, weight, source, and whether it
+fired.
 
-**Move 3 — Maliyet merdivenini yalnızca gerekince tırman.** `location_verify` bir hüküm döner ve ucuzdur;
-`location_retrieve` koordinat döner ve **yalnızca eskalasyon sonrası** çağrılır. Bu hem maliyet hem gizlilik argümanıdır.
+## 5. The scheduler — the agent's own clock
 
-**Temizleme kuralları.** Geofence çıkış olayı, "bölge dışında" hükmü veya sağlıkçı teyidi işçiyi kuyruktan düşürür ve
-bütçesini havuza döndürür. Bütçenin %10'u, çıkış olayına sonsuza dek güvenmemek için presumed-safe işçilerin
-yeniden kontrolüne ayrılır (bayat çıkış olayı sessiz bir hata modudur).
+`apps/api/main.py::Scheduler` re-sweeps breached sites on their own cadence (2 minutes severe, 10 minutes marginal)
+without anyone calling the API. Every ledger row records its `trigger`: `scheduler`, `api` or `demo`. It is **off by
+default in fixture mode** so that the six demo scenarios replay identically every time — the public demo instance runs
+that way — and on in `simulator` and `live` mode (`HS_SCHEDULER=1` forces it). Nine tests cover the cadence, the
+lifespan start/stop and the trigger stamping.
 
-## 5. Bayılma mı, bitmiş pil mi? (§9)
+## 6. Roster reconciliation and the liveness probe
 
-| Kanıt | Kaynak | Etkisi |
-|---|---|---|
-| **Küme testi** — aynı mikro-bölgede ≥2 cihaz birlikte sustu | Reachability | ağ olayı → alarm yok |
-| **Tıkanıklık** — servis hücresi `High` | Congestion Insights | ağ olayı ihtimalini artırır, dilim talebini tetikler |
-| **Cihaz geçmişi** — her gün aynı saatte susuyor / 6+ saattir kesintisiz açıktı | defter geçmişi | pil vs şüpheli düşüş |
-| **Yörünge** — son doğrulama çıkışa doğru (PARTIAL) mu, bölge içinde sabit mi | Location Verification | "sahadan ayrıldı" vs "bayılma" |
+The event stream is not the single source of truth. Every fifteen minutes the agent reconciles the shift roster with the
+geofence picture: a badged-in worker with no network event enters the queue with a presence prior of 0.5, and a device
+that never appeared is reported as a data-quality task for the morning, not a blind spot in the afternoon. The coverage
+metric (`site.coverage()`) counts only workers the network has actually seen — reconciliation cannot inflate it.
 
-Karar + güven skoru + kanıt listesi deftere yazılır; sağlıkçı neye cevap verdiğini bilir. `collapse_min_confidence`
-(0.6) altında kalan vakalar insana gitmez, bir sonraki taramada yeniden kontrol edilir.
+The liveness probe rejects `UNKNOWN` and future-dated answers, and an open escalation is never closed by a late answer.
+An earlier version accepted both and silently cancelled every collapse verdict in an eight-hour test; the fix is in the
+tests.
 
-## 6. Yargı alanı = yapılandırma kaydı
+## 7. Jurisdiction is a configuration entry
 
-```python
-QATAR = Jurisdiction("Katar", "QA", wbgt_limit_c=32.1, summer_ban=SummerBan("06-01","09-15","10:00","15:30"), tz_offset_hours=3)
-SAUDI = ... SummerBan("06-15","09-15","12:00","15:00")
-UAE   = ... SummerBan("06-15","09-15","12:30","15:00"), tz_offset_hours=4
-```
-`/v1/demo/jurisdiction` aynı anda üç yargı alanını yan yana koyar: 11:45 Doha'da çalışma yasak, Riyad'da serbest,
-Dubai'de (12:45 yerel) yasak. Jüri üyesi kendi pazarını bir config satırı olarak görür.
+`packages/rules/config.py` ships Qatar (WBGT > 32.1 °C year-round plus the 10:00–15:30 summer ban), Saudi Arabia and the
+UAE (midday bans). Only Qatar publishes a numeric WBGT limit; the other two carry the Qatari figure as a stated
+placeholder. `HS_JURISDICTION=SA` switches the whole rule set; the *Three jurisdictions* demo runs all three on the same
+minute and the same temperature.
 
-## 7. Gizlilik ve hukuki dayanak (§10)
+## 8. Privacy and legal basis, in code
 
-- **Amaç sınırlaması:** ihlal yoksa sorgu yetkisi yok (`/v1/demo/no-breach`: iki tarama, sıfır çağrı).
-- **Veri minimizasyonu mimaridir:** varsayılan sorgu hüküm döner, koordinat değil. Koordinat yalnızca olası bayılmada,
-  bir kez; deftere 3 ondalıklı kaba özet yazılır.
-- **Sürekli konum geçmişi yok** — `/v1/state` içinde `location_history_size: 0`.
-- **Ham numara hiçbir yanıtta yok:** `WorkerRuntime.to_dict()` maskeli numara + HMAC-SHA256 hash döner; loglar `MaskingFilter` ile maskelenir.
-- **Dürüst kapsama metriği (§9A):** rozetle girip şebekede görünmeyen işçiler `coverage.missing` altında listelenir —
-  telefonu olmayan işçi görünmez, sistem bunu saklamak yerine sabah mutabakat görevi olarak raporlar.
+- No breach → no query. Enforced.
+- The default query returns a verdict, not a coordinate. A coordinate is requested once, after escalation, and is
+  coarsened to three decimals before it enters the ledger.
+- The ledger *is* a per-worker presence record — bounded (`ledger_max_entries`), counted (`presence_record()`), and every
+  stored coordinate names the escalation that justified it. We do not claim "no location history"; an audit showed that
+  claim was false and the console now shows the measured count.
+- Phone numbers are masked at the client boundary; secrets are redacted from every debug view.
 
-## 8. Dayanıklılık
+## 9. Resilience
 
-`nac_client`: timeout 4 sn, 2 retry, API başına circuit breaker. `SafeFacade` hatayı yutar ve `error(<kind>)` kaynağı
-yazar. Kritik davranış: **hata durumunda kimse "güvende" sayılmaz** — `verified_inside` `None` kalır, işçi kuyrukta
-kalır, defter "bilinmiyor" yazar (`/v1/demo/api-down`).
+Circuit breaker per API in `nac_client`; when it opens, no worker is marked safe — the ledger writes *unknown* and the
+worker stays in the queue (*Nokia API down* demo). Answers from untrusted sources are counted as unknown. The model chain
+is Gemini → Groq → rules; a timeout, a 429, malformed JSON or a guard violation all fall back to the deterministic order,
+and the ledger records which hop answered.
 
-## 9. Bilinçli sadeleştirmeler (prototip)
+## 10. Deliberately not built (and said so)
 
-- Kalıcılık yok (bellek içi). Üretimde defter → Supabase/Postgres, TTL ve denetçi dışa aktarımı.
-- Network Slicing gerçek çağrı değil (`# MOCK`), tıkanıklık kanıtıyla defter kaydı.
-- Zamanlayıcı yok: taramalar `POST /v1/sites/{id}/sweep` ile tetiklenir (demo bunları sırayla oynatır);
-  `sweep_due()` üretimdeki cadence mantığını zaten içerir.
-- LLM yok: `llm_adapter.py` boş arayüz. Faz 2'de model, **kuralların ürettiği aday aksiyonları** yeniden sıralar —
-  yeni API çağrısı üretemez, bütçeyi aşamaz (guard-rail: kurallar üstte, model altta).
+Durable storage, authentication and multi-tenancy on `/v1/*`, per-site locking, a circuit breaker keyed by (API, site),
+geofence subscription deletion at end of employment, consent as an enforced precondition. Each is listed with its cost in
+the pitch deck's "road to production" slide and in the Idea Capture §9C. Network Slicing is a separate Nokia product and
+is marked `# MOCK` wherever it appears.

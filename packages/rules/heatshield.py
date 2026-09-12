@@ -393,7 +393,7 @@ def classify_unreachable(worker: dict, neighbours_reachable: int, neighbours_unr
     stationary = hist.get("stationary_inside", True)
 
     ex.append(Explain("cluster_test", {"reachable": neighbours_reachable, "unreachable": neighbours_unreachable}, 1.0,
-                      "Devices in the same micro-zone that went dark together" + (" — CLUSTER: network event" if cluster else " — a single device went dark"),
+                      f"{neighbours_unreachable} silent, {neighbours_reachable} reachable in this micro-zone" + (f" — CLUSTER (≥{d.cluster_min_unreachable}): network event" if cluster else f" — below the cluster threshold of {d.cluster_min_unreachable}: not a network event by itself"),
                       source="device-reachability-status", triggered=cluster))
     ex.append(Explain("congestion", cong, 0.8, "Serving-cell congestion (Congestion Insights)", source="congestion-insights", triggered=high_cong))
     ex.append(Explain("device_history", {"recurring_unreachable_window": recurring, "continuous_reachable_hours": cont_h}, 0.6,

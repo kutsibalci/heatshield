@@ -44,6 +44,10 @@ log = logging.getLogger("heatshield.api")
 
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:8000")
 WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "heatshield-dev-token")
+# Anonim olusturma tavanlari: herkese acik kopya 512 MB; isci basina ~5,3 KB olculdu (denetim D).
+# Demo senaryolari bu tavana tabi degil — kendi sahalarini sifirdan kurup magazayi temizliyorlar.
+MAX_SITES = int(os.environ.get("HS_MAX_SITES") or 50)
+MAX_WORKERS_PER_SITE = int(os.environ.get("HS_MAX_WORKERS_PER_SITE") or 500)
 CFG = Config.from_env()
 
 GEO_ENTERED = "org.camaraproject.geofencing-subscriptions.v0.area-entered"
@@ -81,6 +85,7 @@ class SafeFacade(NacFacade):
             # buradan `/v1/state`e yayiliyordu — maskesiz. Log yolu `MaskingFilter` ile kapaliydi
             # ama bu yol logdan degil YANITTAN geciyor.
             store.degraded.append(_mask_deep({"t": _iso(_now()), "call": name, **e.to_dict()}))
+            del store.degraded[:-200]          # sinirli: /v1/state son 10'unu gosterir, liste buyumesin
             return NacResult(api=name, data={}, source=f"error({e.kind})", latency_ms=0, correlator=str(uuid.uuid4()))
 
 
@@ -314,7 +319,7 @@ class WbgtIn(BaseModel):
 class DemoIn(BaseModel):
     reset: bool = True
     start: datetime | None = None
-    fillers: int = 14
+    fillers: int = Field(default=14, ge=0, le=400)  # üst sınır: herkese açık kopyada bellek koruması (D bulgusu)
 
 
 # ============================================================================ kurulum
@@ -322,12 +327,12 @@ def _site_cfg(code: str) -> Config:
     return CFG.with_jurisdiction(code.upper())
 
 
-def _create_site(body: SiteIn) -> SiteRuntime:
+def _create_site(body: SiteIn, at: datetime | None = None) -> SiteRuntime:
     cfg = _site_cfg(body.jurisdiction)
     site = SiteRuntime(site_id=f"site-{uuid.uuid4().hex[:6]}", name=body.name, lat=body.lat, lng=body.lng,
                        radius_m=max(float(body.radius_m), CFG.min_perimeter_radius_m), cfg=cfg)
     store.sites[site.site_id] = site
-    site.log(_now(), "site_registered", f"{site.name} — {cfg.jurisdiction.name}: {cfg.jurisdiction.legal_ref}", source="jurisdiction-config")
+    site.log(at or _now(), "site_registered", f"{site.name} — {cfg.jurisdiction.name}: {cfg.jurisdiction.legal_ref}", source="jurisdiction-config")
     return site
 
 
@@ -359,6 +364,9 @@ def _add_worker(site: SiteRuntime, body: WorkerIn) -> WorkerRuntime:
 @app.post("/v1/sites", status_code=201)
 def create_site(body: SiteIn):
     with store.lock:
+        if len(store.sites) >= MAX_SITES:
+            raise HTTPException(429, {"code": "SITE_CAP", "message": f"this instance holds at most {MAX_SITES} sites; "
+                                      "run a demo scenario (it resets the store) or deploy your own copy"})
         return _create_site(body).to_dict()
 
 
@@ -376,6 +384,9 @@ def get_site(site_id: str):
 def add_worker(site_id: str, body: WorkerIn):
     with store.lock:
         site = store.site_or_404(site_id)
+        if len(site.workers) >= MAX_WORKERS_PER_SITE:
+            raise HTTPException(429, {"code": "WORKER_CAP", "message": f"a site on this instance holds at most "
+                                      f"{MAX_WORKERS_PER_SITE} workers (measured full-coverage ceiling is ~110 anyway)"})
         try:
             return _add_worker(site, body).to_dict()
         except ValueError as e:
@@ -486,6 +497,8 @@ def webhook_geofence(ev: dict = Body(...), authorization: Optional[str] = Header
         ce_id = ev.get("id") or f"ce-{uuid.uuid4().hex[:8]}"
         if ce_id in store.seen_cloudevent_ids:
             return {"ok": True, "duplicate": True}
+        if len(store.seen_cloudevent_ids) > 10_000:   # tekilleme penceresi sinirli kalsin
+            store.seen_cloudevent_ids.clear()
         store.seen_cloudevent_ids.add(ce_id)
         etype = ev.get("type", "")
         if etype.endswith("subscription-ends"):
@@ -543,7 +556,7 @@ def _prime(phone: str, patch: dict) -> None:
 
 def _setup_site(t0: datetime, fillers: int = 14, jurisdiction: str = "QA") -> SiteRuntime:
     """12 adlandırılmış işçi + kalabalık. Kalabalık, bütçenin neden yetmediğini görünür kılar."""
-    site = _create_site(SiteIn(name="Lusail Construction Site", jurisdiction=jurisdiction, **SITE))
+    site = _create_site(SiteIn(name="Lusail Construction Site", jurisdiction=jurisdiction, **SITE), at=t0)
     for wid, phone, name, zone, days, prior, shift, moving, hist in NAMED:
         _add_worker(site, WorkerIn(worker_id=wid, phone=phone, name=name, micro_zone=zone,
                                    first_day_on_site=(t0 - timedelta(days=days)).date().isoformat(),
@@ -590,9 +603,9 @@ def demo_heat_day(body: DemoIn | None = None):
         sweeps = [
             _sweep(site, t0 + timedelta(minutes=0), 30.2, "09:00 — morning: below the threshold, NO authority to query"),
             _sweep(site, t0 + timedelta(minutes=75), 31.4, "10:15 — summer ban hours began: breach (marginal)"),
-            _sweep(site, t0 + timedelta(minutes=85), 31.6, "10:25 — second sweep: the stale signals moved to the front"),
-            _sweep(site, t0 + timedelta(minutes=95), 35.4, "10:35 — WBGT jumped: SEVERE breach, 2-minute sweeps"),
-            _sweep(site, t0 + timedelta(minutes=97), 35.4, "10:37 — after escalation: a one-time coordinate for the medic"),
+            _sweep(site, t0 + timedelta(minutes=85), 31.6, "10:25 — second sweep: stale signals to the front; one device went silent → probable collapse (0.95), medic called, guaranteed bandwidth opened"),
+            _sweep(site, t0 + timedelta(minutes=95), 35.4, "10:35 — WBGT jumped to 35.4 °C: SEVERE breach, 2-minute sweeps; a one-time coordinate for the medic"),
+            _sweep(site, t0 + timedelta(minutes=97), 35.4, "10:37 — next 2-minute sweep: the open case stays open; the other silent devices are still network / battery / left"),
             _sweep(site, t0 + timedelta(minutes=600), 29.8, "19:00 — breach over: the authority to query lapsed"),
         ]
         return _demo_out(site, sweeps, "heat-day",
@@ -612,7 +625,7 @@ def demo_collapse(body: DemoIn | None = None):
         site = _setup_site(t0, 0)
         sweeps = [
             _sweep(site, t0 + timedelta(minutes=75), 35.6, "10:15 — severe breach: who is still inside?"),
-            _sweep(site, t0 + timedelta(minutes=77), 35.6, "10:17 — reachability sweep: four devices went silent"),
+            _sweep(site, t0 + timedelta(minutes=77), 35.6, "10:17 — reachability sweep: six devices went silent"),
             _sweep(site, t0 + timedelta(minutes=79), 35.6, "10:19 — escalation: medic + guaranteed bandwidth"),
         ]
         verdicts = {}
@@ -620,7 +633,7 @@ def demo_collapse(body: DemoIn | None = None):
             for v in s["verdicts"]:
                 verdicts[v["worker_id"]] = v
         return _demo_out(site, sweeps, "collapse",
-                         "Five silent devices. Four verdicts — and one the network was simply out of date about: a fresh-fix probe answered, proving the device was alive. Only one worker went to a medic.",
+                         "Six devices went silent. Five verdicts of four kinds — one probable collapse, two network events, one dead battery, one worker who had left — and a sixth device the network was merely out of date about: a fresh-fix probe answered, so it was alive. One worker went to a medic.",
                          extra={"verdict_matrix": list(verdicts.values())})
 
 
@@ -791,7 +804,8 @@ def _naive_baseline(sweeps: list[dict]) -> dict:
 
     per_sweep = [on_roster(s) for s in sweeps if s.get("breached")]
     calls = [c for s in sweeps for c in (s.get("calls") or [])]
-    verification = sum(1 for c in calls if c.get("api") in VERIFICATION_APIS)
+    # Canlilik problari bir sessizlik hukmunu IZLER — iki dunyada da olurdu; yalnizca butceli havuz sayilir
+    verification = sum(1 for c in calls if c.get("api") in VERIFICATION_APIS and c.get("pool") in ("main", "reserve"))
     return {"queries": sum(per_sweep), "per_breached_sweep": per_sweep,
             "verification_queries_made": verification,
             "escalation_queries_made": len(calls) - verification,
