@@ -765,6 +765,9 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
         # garantili bant genişliği: sağlıkçı ↔ hekim video görüşmesi
         if "request_qod" in actions:
             data, source, ms = _call(nac, "qod_create", w.phone, cfg.qod_app_server_ipv4, cfg.qod_profile, 900)
+            # QoD oturum istegi de bir sebeke cagrisi: sayilmazsa kart aritmetigi tutmuyor
+            # (juri 83 + 7 toplayip 89 goruyordu). Denetim A / Y1.
+            site.queries_total += 1
             sid = (data or {}).get("sessionId")
             if sid:
                 site.qod_sessions[w.worker_id] = {"session_id": sid, "qos_profile": cfg.qod_profile,

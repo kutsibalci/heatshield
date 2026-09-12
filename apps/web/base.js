@@ -20,16 +20,25 @@ function renderExplain(list) {
   ).join('') + `</ul></div>`;
 }
 function badge(level, text) { return `<span class="badge ${level}">${esc(text)}</span>`; }
+// Where the operator data comes from — said in the jury's words; the raw mode stays in the tooltip.
 async function loadHealth(elId) {
-  try { const h = await api('/health'); const el = document.getElementById(elId); if (el) el.textContent = `NaC mode: ${h.nac.mode}${h.nac.base_url ? ' · ' + h.nac.base_url : ''} · profiles: ${h.profiles}`; } catch (e) { }
+  try {
+    const h = await api('/health'); const el = document.getElementById(elId); if (!el) return;
+    const nac = h.nac || {}, mode = nac.mode || 'unknown';
+    el.textContent = mode === 'fixture'
+      ? `Operator data: recorded fixtures (${h.profiles} device profiles) — no live Nokia credentials on this public instance`
+      : `Operator: Nokia Network as Code · live (${mode})${nac.base_url ? ' · ' + nac.base_url : ''} · ${h.profiles} device profiles`;
+    el.title = `NaC mode: ${mode}${nac.base_url ? ' · ' + nac.base_url : ''} · profiles: ${h.profiles}`;
+  } catch (e) { }
 }
 // The agent's own clock: sweeps run on a background cadence, not because somebody pressed a button.
+// On the public demo it is paused on purpose so every replay is identical; the raw reason stays in the tooltip.
 async function loadScheduler(elId) {
   try {
     const s = await api('/v1/scheduler'); const el = document.getElementById(elId); if (!el) return;
     el.textContent = s.enabled
-      ? `agent clock: ON · every ${s.tick_seconds}s · ticks ${s.ticks} · sweeps ${s.sweeps_run} · last tick ${(s.last_tick_at || '—').slice(11, 19)}`
-      : `agent clock: off (${s.reason})`;
-    el.title = s.reason;
+      ? `Agent scheduler: ON — sweeps on its own every ${+s.tick_seconds} s · ticks ${s.ticks} · sweeps ${s.sweeps_run} · last ${(s.last_tick_at || '—').slice(11, 19)}`
+      : 'Agent scheduler: paused for the demo — sweeps are replayed on demand so every run is identical; in live mode the agent sweeps on its own cadence (2 min severe / 10 min marginal)';
+    el.title = s.reason || '';
   } catch (e) { }
 }
