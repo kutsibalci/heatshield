@@ -4,6 +4,8 @@
 
 MENA Ignite Hackathon 2026 · Theme 6 (Climate Resilience) · Nokia Network as Code (CAMARA)
 
+**Live demo:** https://heatshield-demo.onrender.com/demo — the six one-click scenarios below, running in fixture mode with no operator credentials on the instance. Free tier: the first load after idle can take up to a minute.
+
 ---
 
 Outdoor work in the Gulf is lethal for months of the year, and the law already forbids it: Qatar's Ministerial
