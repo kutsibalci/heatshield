@@ -60,6 +60,19 @@ class WorkerRuntime:
     shift: str = "day"                        # day | night_to_day | transition
     badge_in: bool = True                     # sabah turnike kaydı (§9A mutabakat)
 
+    # --- işveren kayıt alanları (karara GİRMEZ; ekranda ve defterde kimi konuştuğumuzu gösterir)
+    # Uyruk ve meslek skorlamada kullanılmaz: bir işçiyi uyruğuna göre sıralamak ayrımcılıktır ve
+    # ürünün tek sermayesi dürüstlüktür. Bunlar sağlıkçıya/vardiya amirine "kim, nerede, ne iş
+    # yapıyor" demek için vardır (ve kapsama metriğinin hangi işgücünde ölçüldüğünü gösterir).
+    nationality: str = ""
+    trade: str = ""                           # meslek: steel fixer, scaffolder, pipe fitter ...
+    crew: str = ""                            # ekip/gang adı — vardiya amiri bu birimi tanır
+    # `micro_zone` bir İŞVEREN ETİKETİDİR, konumdan türetilmez: ölçülen 1000 m konum belirsizliği
+    # 500 m çeperin mertebesinde olduğu için alt bölge şebekeden DOĞRULANAMAZ. `zone_label` o
+    # etiketin insan okunur adıdır (Marina District, Energy City ...) ve yalnızca WBGT atfı,
+    # ekip gruplaması ve küme testi için kullanılır. Çeper TEK parçadır.
+    zone_label: str = ""
+
     # --- canlı sinyaller
     inside: bool = True                       # geofence olaylarından (ücretsiz)
     entered_at: datetime | None = None        # sahaya giriş anı — maruziyet penceresinin başlangıcı
@@ -102,6 +115,7 @@ class WorkerRuntime:
         """Kural fonksiyonlarının beklediği sözlük görünümü (saf veri, ham numara yok)."""
         return {
             "worker_id": self.worker_id, "masked": self.masked, "name": self.name, "micro_zone": self.micro_zone,
+            "zone_label": self.zone_label, "nationality": self.nationality, "trade": self.trade, "crew": self.crew,
             "first_day_on_site": self.first_day_on_site, "prior_incident": self.prior_incident, "shift": self.shift,
             "entered_at": _iso(self.entered_at),
             "last_signal_at": _iso(self.last_signal_at), "last_verified_at": _iso(self.last_verified_at),

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 UTC = timezone.utc
 T0 = datetime(2026, 8, 17, 3, 0, tzinfo=UTC)    # 06:00 Doha — yasak saati dışı
 NOON = datetime(2026, 8, 17, 9, 0, tzinfo=UTC)  # 12:00 Doha
-SITE = {"lat": 25.38, "lng": 51.49, "radius_m": 500}
+SITE = {"lat": 25.3917, "lng": 51.5299, "radius_m": 500}
 
 
 class Facade:

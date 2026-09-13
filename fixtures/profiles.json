@@ -1,70 +1,3579 @@
 {
-  "_doc": "HeatShield demo/test profilleri. Şema: packages/nac_client/fixtures.py docstring. Saha merkezi 25.3800, 51.4900 (r=500 m). Numaralar Katar (+974).",
-  "_site": {"lat": 25.38, "lng": 51.49, "radius_m": 500, "exit_gate": {"lat": 25.3835, "lng": 51.493}, "outside": {"lat": 25.39, "lng": 51.51}},
+  "_doc": "HeatShield demo/test profiles. Schema: packages/nac_client/fixtures.py docstring. Site centre 25.3917, 51.5299 (r=500 m) — Lusail Marina District, Qatar (see fixtures/roster.json _sources). Numbers stay in the reserved +99999... range: no real Qatari MSISDN is used. 13 named scenario workers + 227 crowd workers.",
+  "_site": {
+    "lat": 25.3917,
+    "lng": 51.5299,
+    "radius_m": 500,
+    "exit_gate": {
+      "lat": 25.3952,
+      "lng": 51.5329
+    },
+    "outside": {
+      "lat": 25.4017,
+      "lng": 51.5499
+    }
+  },
   "profiles": {
     "+99999910001": {
       "_role": "W-001 Rajan — ilk hafta işçisi, saha içinde, erişilebilir (en yüksek kırılganlık ağırlığı)",
-      "location": {"lat": 25.38, "lng": 51.49, "radius": 100},
-      "reachable": true, "connectivity": ["DATA", "SMS"], "congestion": "Low", "qod_available": true
+      "location": {
+        "lat": 25.3917,
+        "lng": 51.5299,
+        "radius": 100
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
     },
     "+99999910002": {
       "_role": "W-002 Bikash — saha içinde, cihaz SUSTU, komşuları erişilebilir, tıkanıklık düşük → olası BAYILMA",
-      "location": {"lat": 25.3805, "lng": 51.4895, "radius": 120},
-      "reachable": false, "connectivity": [], "congestion": "Low", "qod_available": true
+      "location": {
+        "lat": 25.3922,
+        "lng": 51.5294,
+        "radius": 120
+      },
+      "reachable": false,
+      "connectivity": [],
+      "congestion": "Low",
+      "qod_available": true
     },
     "+99999910003": {
       "_role": "W-003 Anil — z2 mikro-bölgesi, cihaz sustu, tıkanıklık YÜKSEK (küme testi: ağ olayı)",
-      "location": {"lat": 25.3792, "lng": 51.4912, "radius": 120},
-      "reachable": false, "connectivity": [], "congestion": "High", "qod_available": false
+      "location": {
+        "lat": 25.3909,
+        "lng": 51.5311,
+        "radius": 120
+      },
+      "reachable": false,
+      "connectivity": [],
+      "congestion": "High",
+      "qod_available": false
     },
     "+99999910004": {
       "_role": "W-004 Suman — z2, aynı anda sustu → küme → ağ olayı (alarm ÜRETİLMEZ)",
-      "location": {"lat": 25.3794, "lng": 51.4915, "radius": 120},
-      "reachable": false, "connectivity": [], "congestion": "High", "qod_available": false
+      "location": {
+        "lat": 25.3911,
+        "lng": 51.5314,
+        "radius": 120
+      },
+      "reachable": false,
+      "connectivity": [],
+      "congestion": "High",
+      "qod_available": false
     },
     "+99999910005": {
       "_role": "W-005 Prakash — her gün aynı saatte susan cihaz (device_history) → olası BİTMİŞ PİL",
-      "location": {"lat": 25.3808, "lng": 51.4903, "radius": 120},
-      "reachable": false, "connectivity": [], "congestion": "Low"
+      "location": {
+        "lat": 25.3925,
+        "lng": 51.5302,
+        "radius": 120
+      },
+      "reachable": false,
+      "connectivity": [],
+      "congestion": "Low"
     },
     "+99999910006": {
       "_role": "W-006 Kamal — bölge içinde doğrulandı, SAHA KAYDI turnikeden çıktığını söylüyor (moving_out), sonra sustu → muhtemelen SAHADAN AYRILDI. Yörünge bir saha sinyalidir; PARTIAL'dan türetilemez.",
-      "location": {"lat": 25.3818, "lng": 51.4912, "radius": 100},
-      "reachable": false, "connectivity": [], "congestion": "Low"
+      "location": {
+        "lat": 25.3935,
+        "lng": 51.5311,
+        "radius": 100
+      },
+      "reachable": false,
+      "connectivity": [],
+      "congestion": "Low"
     },
     "+99999910007": {
       "_role": "W-007 Deepak — geofence ÇIKIŞ olayı var (presumed safe); rezerv bütçeyle yeniden kontrol edilir",
-      "location": {"lat": 25.39, "lng": 51.51, "radius": 100},
-      "reachable": true, "connectivity": ["DATA", "SMS"], "congestion": "Low"
+      "location": {
+        "lat": 25.4017,
+        "lng": 51.5499,
+        "radius": 100
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low"
     },
     "+99999910008": {
       "_role": "W-008 Ravi — önceki sıcak stresi olayı olan işçi, saha içinde, erişilebilir",
-      "location": {"lat": 25.3798, "lng": 51.4907, "radius": 120},
-      "reachable": true, "connectivity": ["DATA", "SMS"], "congestion": "Low"
+      "location": {
+        "lat": 25.3915,
+        "lng": 51.5306,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low"
     },
     "+99999910009": {
       "_role": "W-009 Mohan — gece→gündüz vardiya geçişi. Belirsizlik bölgesi çeperi kesiyor → PARTIAL: yetersiz kanıt. Doğrulanmadı sayılır, kuyrukta kalır, bayatlık artar — bilinmeyen güvende değildir.",
-      "location": {"lat": 25.3838, "lng": 51.4934, "radius": 100},
-      "reachable": true, "connectivity": ["DATA", "SMS"], "congestion": "Low"
+      "location": {
+        "lat": 25.3955,
+        "lng": 51.5333,
+        "radius": 100
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low"
     },
     "+99999910010": {
       "_role": "W-010 Sunil — yavaş API (900 ms) — gecikme demosunun kaynağı",
-      "location": {"lat": 25.3796, "lng": 51.4894, "radius": 120},
-      "reachable": true, "latency_ms": 900, "congestion": "Medium"
+      "location": {
+        "lat": 25.3913,
+        "lng": 51.5293,
+        "radius": 120
+      },
+      "reachable": true,
+      "latency_ms": 900,
+      "congestion": "Medium"
     },
     "+99999910011": {
       "_role": "W-011 Ganesh — Location Verification 500 döner (devre kesici + 'bilinmiyor' demosu)",
-      "location": {"lat": 25.3799, "lng": 51.4901, "radius": 120},
-      "reachable": true, "fail": 500, "congestion": "Low"
+      "location": {
+        "lat": 25.3916,
+        "lng": 51.53,
+        "radius": 120
+      },
+      "reachable": true,
+      "fail": 500,
+      "congestion": "Low"
     },
     "+99999910013": {
       "_role": "W-013 Sanjay — device-status BAYAT bir 'erisilemez' donduruyor ama cihaz canli. Taze fix istegi onu sayfaliyor ve cevap aliniyor → bayilma DEGIL. Saglikci bosuna cagrilmiyor.",
-      "location": {"lat": 25.3805, "lng": 51.4903, "radius": 120},
-      "reachable": false, "stale_reachability": true, "connectivity": [], "congestion": "Low"
+      "location": {
+        "lat": 25.3922,
+        "lng": 51.5302,
+        "radius": 120
+      },
+      "reachable": false,
+      "stale_reachability": true,
+      "connectivity": [],
+      "congestion": "Low"
     },
     "+99999910012": {
       "_role": "W-012 Arjun — rozetle girdi ama cihazı hiç görünmedi (sabah mutabakatı / kapsama metriği)",
-      "location": null, "reachable": false, "connectivity": [], "congestion": "Low"
+      "location": null,
+      "reachable": false,
+      "connectivity": [],
+      "congestion": "Low"
+    },
+    "+99999922000": {
+      "_role": "W-100 Rashid Nawaz — pipe fitter, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3904,
+        "lng": 51.5279,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922001": {
+      "_role": "W-101 Mizanur Chowdhury — facade installer, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3893,
+        "lng": 51.5302,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922002": {
+      "_role": "W-102 Santosh Poudel — banksman, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3904,
+        "lng": 51.5318,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922003": {
+      "_role": "W-103 Javed Sadiq — surveyor, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3921,
+        "lng": 51.5274,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922004": {
+      "_role": "W-104 Bishal Chaudhary — duct fitter, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3924,
+        "lng": 51.5281,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922005": {
+      "_role": "W-105 Sanjay Rathod — painter, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3925,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922006": {
+      "_role": "W-106 Bharat Khadka — storekeeper, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3927,
+        "lng": 51.5284,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922007": {
+      "_role": "W-107 Nabin Rai — facade installer, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3921,
+        "lng": 51.527,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922008": {
+      "_role": "W-108 Balraj Singh — waterproofer, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3895,
+        "lng": 51.5292,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922009": {
+      "_role": "W-109 Naveen Sharma — electrician, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3918,
+        "lng": 51.5299,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922010": {
+      "_role": "W-110 Danilo Garcia — tile setter, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3939,
+        "lng": 51.5314,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922011": {
+      "_role": "W-111 Suman Gurung — concrete pump operator, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3932,
+        "lng": 51.5319,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922012": {
+      "_role": "W-112 Tilak Bhandari — banksman, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3938,
+        "lng": 51.5316,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922013": {
+      "_role": "W-113 Saeed Aslam — concrete pump operator, Fox Hills (unseen_since_morning)",
+      "location": {
+        "lat": 25.3923,
+        "lng": 51.5322,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922014": {
+      "_role": "W-114 Prakash Rai — steel fixer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3898,
+        "lng": 51.5286,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922015": {
+      "_role": "W-115 Chaminda Perera — excavator operator, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.392,
+        "lng": 51.5278,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922016": {
+      "_role": "W-116 Buddhi Shrestha — steel fixer, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3917,
+        "lng": 51.5295,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922017": {
+      "_role": "W-117 Kamrul Sarkar — painter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3903,
+        "lng": 51.5286,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922018": {
+      "_role": "W-118 Habibur Miah — material handler, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.391,
+        "lng": 51.5324,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922019": {
+      "_role": "W-119 Upali Fernando — excavator operator, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.393,
+        "lng": 51.5314,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922020": {
+      "_role": "W-120 Dipak Shrestha — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3923,
+        "lng": 51.5318,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922021": {
+      "_role": "W-121 Naveen Das — scaffolder, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3925,
+        "lng": 51.5325,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922022": {
+      "_role": "W-122 Jashim Talukder — steel fixer, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3933,
+        "lng": 51.5308,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922023": {
+      "_role": "W-123 Ganesh Verma — dumper driver, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3918,
+        "lng": 51.5281,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922024": {
+      "_role": "W-124 Rohit Sharma — concrete finisher, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3929,
+        "lng": 51.5291,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922025": {
+      "_role": "W-125 Alamgir Rahman — scaffolder, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3905,
+        "lng": 51.5289,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922026": {
+      "_role": "W-126 Saman Ekanayake — pipe fitter, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3927,
+        "lng": 51.5276,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922027": {
+      "_role": "W-127 Rohana Bandara — safety steward, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3908,
+        "lng": 51.5292,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922028": {
+      "_role": "W-128 Sohel Alam — concrete pump operator, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3912,
+        "lng": 51.5312,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922029": {
+      "_role": "W-129 Deepak Pariyar — electrician, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3924,
+        "lng": 51.5282,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922030": {
+      "_role": "W-130 Ravi Das — surveyor, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3936,
+        "lng": 51.5289,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922031": {
+      "_role": "W-131 Rakesh Pillai — storekeeper, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3927,
+        "lng": 51.5284,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922032": {
+      "_role": "W-132 Ranjith Silva — scaffolder, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3905,
+        "lng": 51.5316,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922033": {
+      "_role": "W-133 Patrick Kato — scaffolder, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.39,
+        "lng": 51.531,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922034": {
+      "_role": "W-134 Bablu Chowdhury — general labourer, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3907,
+        "lng": 51.5306,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922035": {
+      "_role": "W-135 Suresh Patel — surveyor, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.3936,
+        "lng": 51.5282,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922036": {
+      "_role": "W-136 Buddhi Tamang — scaffolder, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3925,
+        "lng": 51.528,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922037": {
+      "_role": "W-137 Dipak Bhandari — welder, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3895,
+        "lng": 51.5308,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922038": {
+      "_role": "W-138 Saeed Iqbal — duct fitter, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3924,
+        "lng": 51.5321,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922039": {
+      "_role": "W-139 Jerome Navarro — first aider, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3922,
+        "lng": 51.5297,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922040": {
+      "_role": "W-140 Ilyas Gul — facade installer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3924,
+        "lng": 51.5291,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922041": {
+      "_role": "W-141 Sanjay Nair — mason, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3913,
+        "lng": 51.5313,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922042": {
+      "_role": "W-142 Shahidul Hossain — general labourer, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.391,
+        "lng": 51.5292,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922043": {
+      "_role": "W-143 Bishal Gurung — welder, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.3903,
+        "lng": 51.5283,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922044": {
+      "_role": "W-144 Chaminda Bandara — pipe fitter, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3922,
+        "lng": 51.5323,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922045": {
+      "_role": "W-145 Selvam Bhosale — painter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3898,
+        "lng": 51.5309,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922046": {
+      "_role": "W-146 Felix Omondi — tower crane operator, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3918,
+        "lng": 51.5271,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922047": {
+      "_role": "W-147 Ganesh Sharma — electrician, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3942,
+        "lng": 51.5291,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922048": {
+      "_role": "W-148 Reynaldo Bautista — facade installer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3906,
+        "lng": 51.5317,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922049": {
+      "_role": "W-149 Deepak Adhikari — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3908,
+        "lng": 51.5305,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922050": {
+      "_role": "W-150 Balraj Verma — electrician, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3897,
+        "lng": 51.5286,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922051": {
+      "_role": "W-151 Gurpreet Yadav — concrete pump operator, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3916,
+        "lng": 51.5296,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922052": {
+      "_role": "W-152 Mizanur Mollah — plasterer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3891,
+        "lng": 51.5293,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922053": {
+      "_role": "W-153 Zahid Bashir — concrete finisher, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3921,
+        "lng": 51.5279,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922054": {
+      "_role": "W-154 Sajid Shah — concrete pump operator, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3934,
+        "lng": 51.5278,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922055": {
+      "_role": "W-155 Zahid Shah — concrete pump operator, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3943,
+        "lng": 51.5303,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922056": {
+      "_role": "W-156 Bikash Karki — excavator operator, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.3924,
+        "lng": 51.5297,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922057": {
+      "_role": "W-157 Zahid Iqbal — safety steward, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3926,
+        "lng": 51.5278,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922058": {
+      "_role": "W-158 Satish Singh — first aider, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3924,
+        "lng": 51.5307,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922059": {
+      "_role": "W-159 Rajan Gurung — electrician, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3933,
+        "lng": 51.5285,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922060": {
+      "_role": "W-160 Selvam Verma — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3909,
+        "lng": 51.5288,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922061": {
+      "_role": "W-161 Naveed Akhtar — painter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3903,
+        "lng": 51.5304,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922062": {
+      "_role": "W-162 Kiran Singh — facade installer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3927,
+        "lng": 51.5294,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922063": {
+      "_role": "W-163 Bablu Sarkar — first aider, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3911,
+        "lng": 51.5289,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922064": {
+      "_role": "W-164 Anil Chauhan — waterproofer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3892,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922065": {
+      "_role": "W-165 Jashim Howlader — shuttering carpenter, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3931,
+        "lng": 51.5296,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922066": {
+      "_role": "W-166 Harpreet Sharma — rigger, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3916,
+        "lng": 51.5304,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922067": {
+      "_role": "W-167 Naveen Patel — plasterer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3913,
+        "lng": 51.5308,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922068": {
+      "_role": "W-168 Nicholas Wanjala — concrete pump operator, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3914,
+        "lng": 51.5294,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922069": {
+      "_role": "W-169 Javed Gul — waterproofer, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.3909,
+        "lng": 51.5303,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922070": {
+      "_role": "W-170 Farid Ahmed — pipe fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3907,
+        "lng": 51.5307,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922071": {
+      "_role": "W-171 Jomar Aquino — first aider, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3922,
+        "lng": 51.5324,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922072": {
+      "_role": "W-172 Tariq Aslam — shuttering carpenter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3932,
+        "lng": 51.5304,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922073": {
+      "_role": "W-173 Rashid Aslam — plasterer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3911,
+        "lng": 51.5319,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922074": {
+      "_role": "W-174 Dinesh Chauhan — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3894,
+        "lng": 51.531,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922075": {
+      "_role": "W-175 Yam Limbu — dumper driver, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3903,
+        "lng": 51.5315,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922076": {
+      "_role": "W-176 Noor Ayub — flagman, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3911,
+        "lng": 51.5294,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922077": {
+      "_role": "W-177 Ajay Verma — rigger, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3931,
+        "lng": 51.5311,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922078": {
+      "_role": "W-178 Dipak Bista — tile setter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.39,
+        "lng": 51.5297,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922079": {
+      "_role": "W-179 Murugan Nair — welder, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3937,
+        "lng": 51.5284,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922080": {
+      "_role": "W-180 Selvam Nair — dumper driver, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3934,
+        "lng": 51.528,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922081": {
+      "_role": "W-181 Jomar Bautista — excavator operator, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3942,
+        "lng": 51.5301,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922082": {
+      "_role": "W-182 Ravi Jadhav — safety steward, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3925,
+        "lng": 51.5309,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922083": {
+      "_role": "W-183 Alamgir Islam — facade installer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.39,
+        "lng": 51.5293,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922084": {
+      "_role": "W-184 Gurpreet Verma — general labourer, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3902,
+        "lng": 51.5296,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922085": {
+      "_role": "W-185 Deepak Limbu — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3933,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922086": {
+      "_role": "W-186 Buddhi Karki — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3934,
+        "lng": 51.5297,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922087": {
+      "_role": "W-187 Brian Wanjala — facade installer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3923,
+        "lng": 51.5295,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922088": {
+      "_role": "W-188 Bharat Thapa — pipe fitter, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3915,
+        "lng": 51.5274,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922089": {
+      "_role": "W-189 Felix Mwangi — dumper driver, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3896,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922090": {
+      "_role": "W-190 Sarath Jayasinghe — concrete pump operator, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3937,
+        "lng": 51.5288,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922091": {
+      "_role": "W-191 Nurul Sheikh — safety steward, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3906,
+        "lng": 51.5291,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922092": {
+      "_role": "W-192 Noel Bautista — electrician, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.39,
+        "lng": 51.5322,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922093": {
+      "_role": "W-193 Tilak Tamang — shuttering carpenter, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3907,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922094": {
+      "_role": "W-194 Manoj Gowda — general labourer, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3896,
+        "lng": 51.5296,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922095": {
+      "_role": "W-195 Bablu Uddin — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3908,
+        "lng": 51.5274,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922096": {
+      "_role": "W-196 Shahidul Talukder — tile setter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3905,
+        "lng": 51.5294,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922097": {
+      "_role": "W-197 Deepak Khadka — duct fitter, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3936,
+        "lng": 51.5318,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922098": {
+      "_role": "W-198 Krishna Adhikari — tile setter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3934,
+        "lng": 51.5286,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922099": {
+      "_role": "W-199 Tilak Lama — electrician, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3933,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922100": {
+      "_role": "W-200 Vinod Jadhav — duct fitter, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3929,
+        "lng": 51.5285,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922101": {
+      "_role": "W-201 Rafiqul Alam — steel fixer, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3905,
+        "lng": 51.5308,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922102": {
+      "_role": "W-202 Ganesh Bhosale — welder, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3921,
+        "lng": 51.5311,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922103": {
+      "_role": "W-203 Keshav Gurung — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3905,
+        "lng": 51.5308,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922104": {
+      "_role": "W-204 Sohel Sheikh — general labourer, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3891,
+        "lng": 51.5303,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922105": {
+      "_role": "W-205 Ronald Lubega — pipe fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3912,
+        "lng": 51.5281,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922106": {
+      "_role": "W-206 Abul Uddin — concrete pump operator, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3911,
+        "lng": 51.529,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922107": {
+      "_role": "W-207 Ruhul Alam — scaffolder, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.394,
+        "lng": 51.5306,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922108": {
+      "_role": "W-208 Selvam Patel — surveyor, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3903,
+        "lng": 51.529,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922109": {
+      "_role": "W-209 Mohan Reddy — dumper driver, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3912,
+        "lng": 51.5324,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922110": {
+      "_role": "W-210 Suman Rai — electrician, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3897,
+        "lng": 51.5285,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922111": {
+      "_role": "W-211 Javed Khan — scaffolder, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3926,
+        "lng": 51.5318,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922112": {
+      "_role": "W-212 Mohan Pillai — safety steward, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3925,
+        "lng": 51.53,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922113": {
+      "_role": "W-213 Manoj Rathod — welder, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3913,
+        "lng": 51.53,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922114": {
+      "_role": "W-214 Alamgir Hossain — dumper driver, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3926,
+        "lng": 51.5286,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922115": {
+      "_role": "W-215 Satish Jadhav — surveyor, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.3944,
+        "lng": 51.5295,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922116": {
+      "_role": "W-216 Bharat Rai — material handler, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3915,
+        "lng": 51.527,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922117": {
+      "_role": "W-217 Jerome Cruz — painter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3929,
+        "lng": 51.529,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922118": {
+      "_role": "W-218 Javed Mehmood — general labourer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3901,
+        "lng": 51.5291,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922119": {
+      "_role": "W-219 Simon Nsubuga — welder, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.391,
+        "lng": 51.5313,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922120": {
+      "_role": "W-220 Anil Nair — flagman, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3912,
+        "lng": 51.5307,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922121": {
+      "_role": "W-221 Mohan Patel — banksman, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.391,
+        "lng": 51.5293,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922122": {
+      "_role": "W-222 Julius Mugisha — general labourer, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.3935,
+        "lng": 51.5299,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922123": {
+      "_role": "W-223 Allan Reyes — rigger, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3924,
+        "lng": 51.5288,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922124": {
+      "_role": "W-224 Ricardo Reyes — safety steward, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3913,
+        "lng": 51.5282,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922125": {
+      "_role": "W-225 Satish Reddy — steel fixer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3917,
+        "lng": 51.5281,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922126": {
+      "_role": "W-226 Shahidul Sheikh — flagman, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3898,
+        "lng": 51.5293,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922127": {
+      "_role": "W-227 Balraj Rathod — painter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3933,
+        "lng": 51.5287,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922128": {
+      "_role": "W-228 Delwar Rahman — mason, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3913,
+        "lng": 51.5303,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922129": {
+      "_role": "W-229 Suresh Nair — general labourer, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3918,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922130": {
+      "_role": "W-230 Selvam Jadhav — tower crane operator, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3918,
+        "lng": 51.5321,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922131": {
+      "_role": "W-231 Keshav Adhikari — rigger, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3928,
+        "lng": 51.5275,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922132": {
+      "_role": "W-232 Nicholas Omondi — scaffolder, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3934,
+        "lng": 51.5317,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922133": {
+      "_role": "W-233 Kevin Wekesa — scaffolder, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3919,
+        "lng": 51.5306,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922134": {
+      "_role": "W-234 Upali Bandara — flagman, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3932,
+        "lng": 51.53,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922135": {
+      "_role": "W-235 Mizanur Howlader — facade installer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.393,
+        "lng": 51.5274,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922136": {
+      "_role": "W-236 Rohit Singh — welder, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.39,
+        "lng": 51.5284,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922137": {
+      "_role": "W-237 Pradeep Yadav — painter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3927,
+        "lng": 51.5325,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922138": {
+      "_role": "W-238 Bablu Howlader — excavator operator, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.393,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922139": {
+      "_role": "W-239 Rajan Shrestha — painter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3937,
+        "lng": 51.5318,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922140": {
+      "_role": "W-240 Habibur Rahman — material handler, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3935,
+        "lng": 51.5318,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922141": {
+      "_role": "W-241 Rafiqul Mollah — surveyor, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.3941,
+        "lng": 51.5288,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922142": {
+      "_role": "W-242 Naveen Prasad — facade installer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3913,
+        "lng": 51.5277,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922143": {
+      "_role": "W-243 Anura Bandara — facade installer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3929,
+        "lng": 51.5317,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922144": {
+      "_role": "W-244 Nazrul Hossain — concrete pump operator, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3899,
+        "lng": 51.5306,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922145": {
+      "_role": "W-245 Pradeep Patel — pipe fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3929,
+        "lng": 51.5281,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922146": {
+      "_role": "W-246 Sohel Miah — electrician, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3926,
+        "lng": 51.531,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922147": {
+      "_role": "W-247 Ravi Yadav — painter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3932,
+        "lng": 51.5317,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922148": {
+      "_role": "W-248 Thilak Rathnayake — surveyor, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.392,
+        "lng": 51.5273,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922149": {
+      "_role": "W-249 Noor Aslam — facade installer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3927,
+        "lng": 51.5285,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922150": {
+      "_role": "W-250 Gopal Shrestha — mason, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3901,
+        "lng": 51.5278,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922151": {
+      "_role": "W-251 Mohan Rathod — welder, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.3899,
+        "lng": 51.5316,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922152": {
+      "_role": "W-252 Prakash Tamang — first aider, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3904,
+        "lng": 51.5282,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922153": {
+      "_role": "W-253 Nimal Wickramasinghe — tower crane operator, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3897,
+        "lng": 51.5306,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922154": {
+      "_role": "W-254 Mohan Bhosale — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3934,
+        "lng": 51.531,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922155": {
+      "_role": "W-255 Indra Shahi — banksman, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3928,
+        "lng": 51.5285,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922156": {
+      "_role": "W-256 Nabin Bhandari — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3914,
+        "lng": 51.527,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922157": {
+      "_role": "W-257 Gurpreet Nair — concrete finisher, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3929,
+        "lng": 51.5284,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922158": {
+      "_role": "W-258 Kamrul Uddin — waterproofer, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.3908,
+        "lng": 51.5325,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922159": {
+      "_role": "W-259 Ganesh Gowda — general labourer, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3917,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922160": {
+      "_role": "W-260 Vinod Rathod — waterproofer, Qetaifan Island (rest_rotation)",
+      "location": {
+        "lat": 25.3909,
+        "lng": 51.5286,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922161": {
+      "_role": "W-261 Muhammad Sadiq — scaffolder, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3922,
+        "lng": 51.5275,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922162": {
+      "_role": "W-262 Manoj Yadav — concrete finisher, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3927,
+        "lng": 51.5317,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922163": {
+      "_role": "W-263 Jashim Sheikh — shuttering carpenter, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3898,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922164": {
+      "_role": "W-264 Moses Mwangi — electrician, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3903,
+        "lng": 51.5306,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922165": {
+      "_role": "W-265 Chandra Thapa — storekeeper, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3939,
+        "lng": 51.5297,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922166": {
+      "_role": "W-266 Robert Ochieng — facade installer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3895,
+        "lng": 51.5315,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922167": {
+      "_role": "W-267 Kevin Mwangi — welder, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3926,
+        "lng": 51.5324,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922168": {
+      "_role": "W-268 Hari Limbu — duct fitter, Energy City (rest_rotation)",
+      "location": {
+        "lat": 25.3921,
+        "lng": 51.5298,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922169": {
+      "_role": "W-269 Harpreet Chauhan — duct fitter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3928,
+        "lng": 51.5293,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922170": {
+      "_role": "W-270 Sarath Gunawardena — painter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3897,
+        "lng": 51.531,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922171": {
+      "_role": "W-271 Dinesh Reddy — tile setter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3905,
+        "lng": 51.5321,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922172": {
+      "_role": "W-272 Jayantha Fernando — first aider, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.391,
+        "lng": 51.5317,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922173": {
+      "_role": "W-273 Ajay Bhosale — waterproofer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3938,
+        "lng": 51.5296,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922174": {
+      "_role": "W-274 Buddhi Thapa — shuttering carpenter, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3936,
+        "lng": 51.5293,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922175": {
+      "_role": "W-275 Joselito Dela Cruz — tile setter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3936,
+        "lng": 51.5318,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922176": {
+      "_role": "W-276 Rafiqul Uddin — waterproofer, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3932,
+        "lng": 51.5309,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922177": {
+      "_role": "W-277 Dipak Shahi — concrete pump operator, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.3907,
+        "lng": 51.5314,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922178": {
+      "_role": "W-278 Suman Bista — steel fixer, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3916,
+        "lng": 51.5284,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922179": {
+      "_role": "W-279 Indra Gurung — material handler, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3936,
+        "lng": 51.5278,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922180": {
+      "_role": "W-280 Vinod Pillai — general labourer, Al Erkyah (rest_rotation)",
+      "location": {
+        "lat": 25.3943,
+        "lng": 51.5296,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922181": {
+      "_role": "W-281 Jamal Howlader — safety steward, Fox Hills (rest_rotation)",
+      "location": {
+        "lat": 25.394,
+        "lng": 51.5312,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922182": {
+      "_role": "W-282 Farid Sarkar — tile setter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3923,
+        "lng": 51.5294,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922183": {
+      "_role": "W-283 Abul Chowdhury — tile setter, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3924,
+        "lng": 51.5318,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922184": {
+      "_role": "W-284 Farid Hossain — concrete finisher, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3899,
+        "lng": 51.53,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922185": {
+      "_role": "W-285 Samuel Kiprotich — tower crane operator, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3929,
+        "lng": 51.5274,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922186": {
+      "_role": "W-286 Mahesh Adhikari — concrete finisher, Marina District (rest_rotation)",
+      "location": {
+        "lat": 25.3924,
+        "lng": 51.5312,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922187": {
+      "_role": "W-287 Ravi Gowda — flagman, Fox Hills (welfare_compound)",
+      "location": {
+        "lat": 25.387,
+        "lng": 51.523,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922188": {
+      "_role": "W-288 Nurul Talukder — plasterer, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3897,
+        "lng": 51.5225,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922189": {
+      "_role": "W-289 Moses Wekesa — banksman, Fox Hills (welfare_compound)",
+      "location": {
+        "lat": 25.3887,
+        "lng": 51.5226,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922190": {
+      "_role": "W-290 Kamal Lama — electrician, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3871,
+        "lng": 51.5243,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922191": {
+      "_role": "W-291 Zahid Mehmood — rigger, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3878,
+        "lng": 51.5228,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922192": {
+      "_role": "W-292 Dinesh Patel — shuttering carpenter, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3885,
+        "lng": 51.5221,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922193": {
+      "_role": "W-293 Thilak Jayasinghe — concrete pump operator, Fox Hills (welfare_compound)",
+      "location": {
+        "lat": 25.3893,
+        "lng": 51.5222,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922194": {
+      "_role": "W-294 Dinesh Mandal — concrete pump operator, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3874,
+        "lng": 51.5226,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922195": {
+      "_role": "W-295 Shahzad Khan — concrete finisher, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3882,
+        "lng": 51.5226,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922196": {
+      "_role": "W-296 Sunil Prasad — concrete finisher, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3868,
+        "lng": 51.5229,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922197": {
+      "_role": "W-297 Gopal Adhikari — tile setter, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3869,
+        "lng": 51.5231,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922198": {
+      "_role": "W-298 Alamgir Alam — banksman, Fox Hills (welfare_compound)",
+      "location": {
+        "lat": 25.3876,
+        "lng": 51.5236,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922199": {
+      "_role": "W-299 Rajan Khadka — electrician, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3869,
+        "lng": 51.5228,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922200": {
+      "_role": "W-300 Ramesh Mandal — rigger, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3872,
+        "lng": 51.5233,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922201": {
+      "_role": "W-301 Delwar Islam — storekeeper, Fox Hills (welfare_compound)",
+      "location": {
+        "lat": 25.3895,
+        "lng": 51.5225,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922202": {
+      "_role": "W-302 Anwar Uddin — excavator operator, Energy City (welfare_compound)",
+      "location": {
+        "lat": 25.3876,
+        "lng": 51.5228,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922203": {
+      "_role": "W-303 Dinesh Pillai — mason, Al Erkyah (welfare_compound)",
+      "location": {
+        "lat": 25.389,
+        "lng": 51.5216,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922204": {
+      "_role": "W-304 Shahzad Akhtar — dumper driver, Fox Hills (welfare_compound)",
+      "location": {
+        "lat": 25.3888,
+        "lng": 51.5228,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922205": {
+      "_role": "W-305 Ramesh Reddy — electrician, Energy City (welfare_compound)",
+      "location": {
+        "lat": 25.3904,
+        "lng": 51.5213,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922206": {
+      "_role": "W-306 Robert Aheebwa — scaffolder, Energy City (welfare_compound)",
+      "location": {
+        "lat": 25.3891,
+        "lng": 51.523,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922207": {
+      "_role": "W-307 Kiran Rathod — welder, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3898,
+        "lng": 51.522,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922208": {
+      "_role": "W-308 Tariq Nawaz — dumper driver, Energy City (welfare_compound)",
+      "location": {
+        "lat": 25.389,
+        "lng": 51.5231,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922209": {
+      "_role": "W-309 Kamrul Bhuiyan — flagman, Fox Hills (welfare_compound)",
+      "location": {
+        "lat": 25.3901,
+        "lng": 51.5211,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922210": {
+      "_role": "W-310 Murugan Mandal — pipe fitter, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3906,
+        "lng": 51.5212,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922211": {
+      "_role": "W-311 Nabin Bista — first aider, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3899,
+        "lng": 51.5227,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922212": {
+      "_role": "W-312 Suman Lama — electrician, Energy City (welfare_compound)",
+      "location": {
+        "lat": 25.389,
+        "lng": 51.5227,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922213": {
+      "_role": "W-313 Ganesh Das — electrician, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3874,
+        "lng": 51.5237,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922214": {
+      "_role": "W-314 Bishal Shahi — pipe fitter, Energy City (welfare_compound)",
+      "location": {
+        "lat": 25.3905,
+        "lng": 51.5215,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922215": {
+      "_role": "W-315 Buddhi Shahi — shuttering carpenter, Al Erkyah (welfare_compound)",
+      "location": {
+        "lat": 25.3902,
+        "lng": 51.5217,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922216": {
+      "_role": "W-316 Suman Pariyar — pipe fitter, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3878,
+        "lng": 51.5233,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922217": {
+      "_role": "W-317 Chandra Lama — steel fixer, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3897,
+        "lng": 51.5224,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922218": {
+      "_role": "W-318 Rolando Santos — tile setter, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3891,
+        "lng": 51.5217,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922219": {
+      "_role": "W-319 Noel Castillo — dumper driver, Energy City (welfare_compound)",
+      "location": {
+        "lat": 25.3865,
+        "lng": 51.5231,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922220": {
+      "_role": "W-320 Kevin Kimani — flagman, Fox Hills (welfare_compound)",
+      "location": {
+        "lat": 25.39,
+        "lng": 51.5215,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922221": {
+      "_role": "W-321 Noel Dela Cruz — waterproofer, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3866,
+        "lng": 51.5234,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922222": {
+      "_role": "W-322 Rohit Pillai — safety steward, Energy City (welfare_compound)",
+      "location": {
+        "lat": 25.388,
+        "lng": 51.5224,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922223": {
+      "_role": "W-323 Ravi Patel — electrician, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.39,
+        "lng": 51.5212,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Medium",
+      "qod_available": true
+    },
+    "+99999922224": {
+      "_role": "W-324 Reynaldo Cruz — scaffolder, Energy City (welfare_compound)",
+      "location": {
+        "lat": 25.3868,
+        "lng": 51.5234,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "High",
+      "qod_available": true
+    },
+    "+99999922225": {
+      "_role": "W-325 Shahzad Ayub — facade installer, Marina District (welfare_compound)",
+      "location": {
+        "lat": 25.3903,
+        "lng": 51.5226,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
+    },
+    "+99999922226": {
+      "_role": "W-326 Mohan Gowda — material handler, Fox Hills (welfare_compound)",
+      "location": {
+        "lat": 25.3871,
+        "lng": 51.523,
+        "radius": 120
+      },
+      "reachable": true,
+      "connectivity": [
+        "DATA",
+        "SMS"
+      ],
+      "congestion": "Low",
+      "qod_available": true
     }
   }
 }

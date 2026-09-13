@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import sys
 import threading
@@ -33,7 +34,7 @@ from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from .common import NacFacade, _mask_deep, build_nac, mount_common  # noqa: E402  (sys.path'i de ayarlar)
+from .common import ROOT, NacFacade, _mask_deep, build_nac, mount_common  # noqa: E402  (sys.path'i de ayarlar)
 from nac_client import NacError, mask_phone  # noqa: E402
 from nac_client.client import NacResult  # noqa: E402
 from nac_client.privacy import hash_phone, normalize_phone  # noqa: E402
@@ -49,6 +50,30 @@ WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "heatshield-dev-token")
 MAX_SITES = int(os.environ.get("HS_MAX_SITES") or 50)
 MAX_WORKERS_PER_SITE = int(os.environ.get("HS_MAX_WORKERS_PER_SITE") or 500)
 CFG = Config.from_env()
+
+# Demo sahası ve vardiya listesi VERİDİR, kod değil: fixtures/roster.json. Orada 13 adlandırılmış
+# senaryo işçisi (davranışları donmuş) ve 227 kişilik kalabalık var — toplam 240, gerçek bir Katar
+# mega-proje şantiyesinin ölçeği. Şebeke tarafı taklidi fixtures/profiles.json'da; koordinatlar
+# gerçek Lusail Marina District'tir (kaynaklar roster.json `_sources` içinde).
+ROSTER = json.loads((ROOT / "fixtures" / "roster.json").read_text(encoding="utf-8"))
+SITE = {"lat": ROSTER["site"]["lat"], "lng": ROSTER["site"]["lng"], "radius_m": ROSTER["site"]["radius_m"]}
+SITE_NAME = ROSTER["site"]["name"]
+ZONES = ROSTER["zones"]
+# (worker_id, phone, spec) — `for _, phone, *_ in NAMED` kullanan çağrı yerleri korunur.
+NAMED = [(w["worker_id"], w["phone"], w) for w in ROSTER["named"]]
+CROWD = ROSTER["crowd"]
+# Yasak saati rotasyonu (bkz. `_ban_hour_rotation`) — vardiya listesi üç duruma ayrılır:
+#   rest_rotation        10:00'da çeperden çıkar, 10:15'te gölgelikli dinlenme alanına geri girer.
+#                        İki ÜCRETSİZ geofence olayı; şebeke "içeride" dediği için bayatlıkları
+#                        sıfırdır ve kuyruğun en altına düşerler. Kuyruktan DÜŞMEZLER.
+#   welfare_compound     yasak penceresinin tamamını çeperin DIŞINDAKİ refah kampında geçirir
+#                        (sahanın kendi sıcak stresi politikası: iklime alışmamış ve sıcak olayı
+#                        kaydı olan ekip). Çıkış olayı var → "presumed safe" → %10 rezervle
+#                        yeniden kontrol edilir, çünkü bayat bir çıkış olayı sessiz bir hata modudur.
+#   unseen_since_morning sabah girişinden sonra şebekeden tek sinyal gelmemiş işçiler — bütçenin
+#                        gerçekten harcandığı grup.
+ROTATION_IDS = frozenset(c["worker_id"] for c in CROWD if c.get("status") == "rest_rotation")
+WELFARE_IDS = frozenset(c["worker_id"] for c in CROWD if c.get("status") == "welfare_compound")
 
 GEO_ENTERED = "org.camaraproject.geofencing-subscriptions.v0.area-entered"
 GEO_LEFT = "org.camaraproject.geofencing-subscriptions.v0.area-left"
@@ -284,11 +309,14 @@ scheduler = Scheduler()
 
 # ============================================================================ istek modelleri
 class SiteIn(BaseModel):
-    name: str = "Lusail Construction Site"
+    # Varsayılanlar demo sahasıyla aynı yerdir: gerçek Lusail Marina District koordinatları
+    # (kaynaklar fixtures/roster.json `_sources`). Yarıçap 500 m KALIR — ölçülen 1000 m konum
+    # belirsizliğinin karşısındaki çeper bu ve bütün iddialarımız o orana dayanıyor.
+    name: str = ROSTER["site"]["name"]
     jurisdiction: str = Field(default="QA", pattern="^(QA|SA|AE|qa|sa|ae)$")
-    lat: float = 25.38
-    lng: float = 51.49
-    radius_m: float = 500
+    lat: float = ROSTER["site"]["lat"]
+    lng: float = ROSTER["site"]["lng"]
+    radius_m: float = ROSTER["site"]["radius_m"]
 
 
 class WorkerIn(BaseModel):
@@ -296,12 +324,21 @@ class WorkerIn(BaseModel):
     phone: str
     name: str = ""
     micro_zone: str = "z1"
+    # İşveren kayıt alanları — karara girmez, ekranda/defterde kimi konuştuğumuzu gösterir.
+    # (Uyruk ve meslek SKORLAMADA kullanılmaz; bkz. agent/policy.py WorkerRuntime.)
+    zone_label: str = ""
+    nationality: str = ""
+    trade: str = ""
+    crew: str = ""
     first_day_on_site: str | None = None
     prior_incident: bool = False
     shift: str = "day"
     badge_in: bool = True
     device_history: dict = Field(default_factory=dict)
     moving_out: bool = False
+    # Yabancı hat + dolaşım: ev operatörü Open Gateway sunmuyorsa bu işçiye teknik olarak hiç
+    # erişilemez. "Bulamadık" değil, KALICI OLARAK BİLİNMİYOR — kapsama metriğinde ayrı sayılır.
+    reachable_via_operator: bool = True
     subscribe: bool = True
 
 
@@ -319,7 +356,9 @@ class WbgtIn(BaseModel):
 class DemoIn(BaseModel):
     reset: bool = True
     start: datetime | None = None
-    fillers: int = Field(default=14, ge=0, le=400)  # üst sınır: herkese açık kopyada bellek koruması (D bulgusu)
+    # Varsayılan: vardiya listesinin tamamı (227 kalabalık + 13 adlı işçi = 240). Üst sınır
+    # roster.json'daki kalabalık kadardır; tavan herkese açık kopyada bellek korumasıdır (D bulgusu).
+    fillers: int = Field(default=len(CROWD), ge=0, le=len(CROWD))
 
 
 # ============================================================================ kurulum
@@ -338,9 +377,11 @@ def _create_site(body: SiteIn, at: datetime | None = None) -> SiteRuntime:
 
 def _add_worker(site: SiteRuntime, body: WorkerIn) -> WorkerRuntime:
     w = new_worker(body.worker_id, body.phone, name=body.name, micro_zone=body.micro_zone,
+                   zone_label=body.zone_label or body.micro_zone, nationality=body.nationality,
+                   trade=body.trade, crew=body.crew,
                    first_day_on_site=body.first_day_on_site, prior_incident=body.prior_incident,
                    shift=body.shift, badge_in=body.badge_in, device_history=dict(body.device_history),
-                   moving_out=body.moving_out)
+                   moving_out=body.moving_out, reachable_via_operator=body.reachable_via_operator)
     site.workers[w.worker_id] = w
     if body.subscribe:
         sink = f"{PUBLIC_BASE_URL.rstrip('/')}/webhooks/geofence"
@@ -517,23 +558,6 @@ def webhook_geofence(ev: dict = Body(...), authorization: Optional[str] = Header
 
 # ============================================================================ demo (tek tuş)
 DEMO_START = datetime(2026, 8, 17, 6, 0, tzinfo=timezone.utc)  # 09:00 Doha yerel saati
-SITE = {"lat": 25.38, "lng": 51.49, "radius_m": 500}
-NAMED = [
-    # (worker_id, phone, name, zone, ilk_gun_offset_gun, prior, shift, moving_out, device_history)
-    ("W-001", "+99999910001", "Rajan", "z1", 2, False, "day", False, {"continuous_reachable_hours": 7}),
-    ("W-002", "+99999910002", "Bikash", "z1", 1, False, "day", False, {"continuous_reachable_hours": 8}),
-    ("W-003", "+99999910003", "Anil", "z2", 400, False, "day", False, {}),
-    ("W-004", "+99999910004", "Suman", "z2", 380, False, "day", False, {}),
-    ("W-005", "+99999910005", "Prakash", "z3", 500, False, "day", False, {"recurring_unreachable_window": True}),
-    ("W-006", "+99999910006", "Kamal", "z3", 300, False, "day", True, {}),
-    ("W-007", "+99999910007", "Deepak", "z1", 600, False, "day", False, {}),
-    ("W-008", "+99999910008", "Ravi", "z1", 200, True, "day", False, {}),
-    ("W-009", "+99999910009", "Mohan", "z1", 250, False, "night_to_day", False, {}),
-    ("W-010", "+99999910010", "Sunil", "z1", 700, False, "day", False, {}),
-    ("W-011", "+99999910011", "Ganesh", "z1", 800, False, "day", False, {}),
-    ("W-012", "+99999910012", "Arjun", "z1", 900, False, "day", False, {}),
-    ("W-013", "+99999910013", "Sanjay", "z1", 350, False, "day", False, {"continuous_reachable_hours": 7}),
-]
 
 
 def _prime(phone: str, patch: dict) -> None:
@@ -554,19 +578,31 @@ def _prime(phone: str, patch: dict) -> None:
             log.warning("simulator prime failed phone=%s err=%s", mask_phone(p), e)
 
 
-def _setup_site(t0: datetime, fillers: int = 14, jurisdiction: str = "QA") -> SiteRuntime:
-    """12 adlandırılmış işçi + kalabalık. Kalabalık, bütçenin neden yetmediğini görünür kılar."""
-    site = _create_site(SiteIn(name="Lusail Construction Site", jurisdiction=jurisdiction, **SITE), at=t0)
-    for wid, phone, name, zone, days, prior, shift, moving, hist in NAMED:
-        _add_worker(site, WorkerIn(worker_id=wid, phone=phone, name=name, micro_zone=zone,
-                                   first_day_on_site=(t0 - timedelta(days=days)).date().isoformat(),
-                                   prior_incident=prior, shift=shift, moving_out=moving, device_history=hist))
-    for i in range(fillers):
-        phone = f"+9999992{2000 + i:04d}"
-        _prime(phone, {"location": {"lat": SITE["lat"] + 0.0004, "lng": SITE["lng"] - 0.0004, "radius": 120},
-                       "reachable": True, "connectivity": ["DATA", "SMS"], "congestion": "Low"})
-        _add_worker(site, WorkerIn(worker_id=f"W-{100 + i}", phone=phone, name=f"Worker {100 + i}", micro_zone="z4",
-                                   first_day_on_site=(t0 - timedelta(days=365 + i)).date().isoformat()))
+def _worker_in(spec: dict, t0: datetime) -> WorkerIn:
+    """roster.json kaydı → WorkerIn. `days_on_site` demo saatine göre tarihe çevrilir (kırılganlık
+    ağırlığı `now - first_day_on_site` ile ölçüldüğü için mutlak tarih yazmak yanlış olurdu)."""
+    return WorkerIn(
+        worker_id=spec["worker_id"], phone=spec["phone"], name=spec["name"],
+        micro_zone=spec["micro_zone"], zone_label=spec.get("zone_label", ""),
+        nationality=spec.get("nationality", ""), trade=spec.get("trade", ""), crew=spec.get("crew", ""),
+        first_day_on_site=(t0 - timedelta(days=int(spec["days_on_site"]))).date().isoformat(),
+        prior_incident=bool(spec.get("prior_incident")), shift=spec.get("shift", "day"),
+        moving_out=bool(spec.get("moving_out")), device_history=dict(spec.get("device_history") or {}),
+        reachable_via_operator=bool(spec.get("reachable_via_operator", True)))
+
+
+def _setup_site(t0: datetime, fillers: int = len(CROWD), jurisdiction: str = "QA") -> SiteRuntime:
+    """13 adlandırılmış senaryo işçisi + kalabalık (varsayılan 227 → 240 kişilik vardiya listesi).
+
+    Kalabalık bütçenin neden yetmediğini görünür kılar: 240 kişilik bir sahada tarama başına 18
+    sorgu hakkı var, yani her taramada iki yüzden fazla işçi listede kalır. Ölçülen "tam kapsama
+    tavanı ~110 işçi/saha" iddiası ekranda böyle somutlaşır.
+    """
+    site = _create_site(SiteIn(name=SITE_NAME, jurisdiction=jurisdiction, **SITE), at=t0)
+    for _, _, spec in NAMED:
+        _add_worker(site, _worker_in(spec, t0))
+    for spec in CROWD[:max(0, fillers)]:
+        _add_worker(site, _worker_in(spec, t0))
     # sabah vardiya girişi — ücretsiz geofence olayları (hiçbir sorgu harcanmaz)
     for w in list(site.workers.values()):
         if w.worker_id == "W-012":
@@ -574,6 +610,47 @@ def _setup_site(t0: datetime, fillers: int = 14, jurisdiction: str = "QA") -> Si
             continue
         apply_geofence_event(site, w.worker_id, "enter", t0)
     return site
+
+
+def _ban_hour_rotation(site: SiteRuntime, out_at: datetime, in_at: datetime) -> dict:
+    """Yasak saati rotasyonu — TAMAMEN ÜCRETSİZ, sıfır sorgu.
+
+    Katar'da 10:00–15:30 arası açık havada çalışmak yasak (Bakanlık Kararı 17/2021). 10:00'da iş
+    durur; ekipler çeperden çıkar. 10:15'te bir kısmı sahanın gölgelikli dinlenme istasyonlarına
+    geri girer; iklime alışmamış ve sıcak stresi kaydı olan ekip ise yasak penceresinin tamamını
+    çeperin DIŞINDAKİ refah kampında geçirir. Her iki geçiş de şebeke tarafından İTİLİR
+    (geofencing-subscriptions) — bütçeden bir kuruş harcanmaz.
+
+    Veride iki sonucu var ve ikisi de ölçülebilir:
+      * Geri girenlerin bayatlığı sıfırdır (şebeke az önce "içeride" dedi) → sıralamanın en altına
+        düşerler, ama kuyruktan DÜŞMEZLER. Bütçe sabahtan beri hiç sinyal gelmeyenlere gider.
+      * Refah kampındakiler "presumed safe" olur → %10'luk rezerv onların en bayatını her taramada
+        yeniden doğrular, çünkü bayat bir çıkış olayı sessiz bir hata modudur.
+    Ücretsiz bir olay kimseyi güvende İLAN ETMEZ; yalnızca sıranın yerini belirler.
+    """
+    rotating = [w.worker_id for w in site.workers.values() if w.worker_id in ROTATION_IDS]
+    welfare = [w.worker_id for w in site.workers.values() if w.worker_id in WELFARE_IDS]
+    for wid in rotating + welfare:
+        apply_geofence_event(site, wid, "exit", out_at)
+    for wid in rotating:
+        apply_geofence_event(site, wid, "enter", in_at)
+    events = len(rotating) * 2 + len(welfare)
+    b = site.cfg.budget
+    usable = b.queries_per_site_per_minute - int(math.ceil(b.queries_per_site_per_minute * b.reserve_ratio))
+    site.log(in_at, "ban_hour_rotation",
+             f"Ban hours began: work stopped and {len(rotating) + len(welfare)} workers crossed the "
+             f"perimeter out. {len(rotating)} are back inside at the shaded rest stations; "
+             f"{len(welfare)} (the unacclimatised cohort and everyone with a heat-stress record) stay "
+             f"in the off-site welfare compound for the whole window and count as presumed safe — the "
+             f"reserve re-verifies the stalest of them every sweep. {events} network-pushed events, "
+             f"ZERO queries: the queue is still {len(site.workers)} workers deep and the budget covers "
+             f"{usable} per sweep",
+             source="geofencing-subscriptions",
+             extra={"returned_inside": len(rotating), "welfare_compound": len(welfare),
+                    "events": events, "cost": 0})
+    return {"returned_inside": len(rotating), "welfare_compound": len(welfare), "free_events": events,
+            "queries": 0, "out_at": _iso(out_at), "in_at": _iso(in_at),
+            "note": "Ban-hour rotation pushed by the network (geofencing-subscriptions). No query budget spent."}
 
 
 def _demo_start(body: DemoIn | None) -> tuple[DemoIn, datetime]:
@@ -600,16 +677,20 @@ def demo_heat_day(body: DemoIn | None = None):
     with store.lock:
         body, t0 = _demo_start(body)
         site = _setup_site(t0, body.fillers)
-        sweeps = [
-            _sweep(site, t0 + timedelta(minutes=0), 30.2, "09:00 — morning: below the threshold, NO authority to query"),
+        first = [_sweep(site, t0 + timedelta(minutes=0), 30.2, "09:00 — morning: below the threshold, NO authority to query")]
+        # 10:00 — yasak saati: iş durur, ekipler çeperin dışındaki gölgelikli dinlenme alanına çıkar
+        # ve 10:15'te geri girer. Şebekenin ittiği ücretsiz olaylar; sıfır sorgu, sıfır maliyet.
+        rotation = _ban_hour_rotation(site, t0 + timedelta(minutes=60), t0 + timedelta(minutes=75))
+        sweeps = first + [
             _sweep(site, t0 + timedelta(minutes=75), 31.4, "10:15 — summer ban hours began: breach (marginal)"),
             _sweep(site, t0 + timedelta(minutes=85), 31.6, "10:25 — second sweep: stale signals to the front; one device went silent → probable collapse (0.95), medic called, guaranteed bandwidth opened"),
             _sweep(site, t0 + timedelta(minutes=95), 35.4, "10:35 — WBGT jumped to 35.4 °C: SEVERE breach, 2-minute sweeps; a one-time coordinate for the medic"),
-            _sweep(site, t0 + timedelta(minutes=97), 35.4, "10:37 — next 2-minute sweep: the open case stays open; the other silent devices are still network / battery / left"),
+            _sweep(site, t0 + timedelta(minutes=97), 35.4, "10:37 — next 2-minute sweep: the open case stays open (an alarm does not close itself); the other silent devices keep their network / battery / left verdicts, and the budget moves on to the workers nobody has heard from for twenty minutes"),
             _sweep(site, t0 + timedelta(minutes=600), 29.8, "19:00 — breach over: the authority to query lapsed"),
         ]
         return _demo_out(site, sweeps, "heat-day",
-                         "Not one query while there was no breach; during the breach the budget was spent in risk order.")
+                         "Not one query while there was no breach; during the breach the budget was spent in risk order.",
+                         extra={"ban_hour_rotation": rotation})
 
 
 @app.post("/v1/demo/collapse")
@@ -622,7 +703,8 @@ def demo_collapse(body: DemoIn | None = None):
     """
     with store.lock:
         body, t0 = _demo_start(body)
-        site = _setup_site(t0, 0)
+        site = _setup_site(t0, body.fillers)
+        rotation = _ban_hour_rotation(site, t0 + timedelta(minutes=60), t0 + timedelta(minutes=75))
         sweeps = [
             _sweep(site, t0 + timedelta(minutes=75), 35.6, "10:15 — severe breach: who is still inside?"),
             _sweep(site, t0 + timedelta(minutes=77), 35.6, "10:17 — reachability sweep: six devices went silent"),
@@ -634,7 +716,7 @@ def demo_collapse(body: DemoIn | None = None):
                 verdicts[v["worker_id"]] = v
         return _demo_out(site, sweeps, "collapse",
                          "Six devices went silent. Five verdicts of four kinds — one probable collapse, two network events, one dead battery, one worker who had left — and a sixth device the network was merely out of date about: a fresh-fix probe answered, so it was alive. One worker went to a medic.",
-                         extra={"verdict_matrix": list(verdicts.values())})
+                         extra={"verdict_matrix": list(verdicts.values()), "ban_hour_rotation": rotation})
 
 
 @app.post("/v1/demo/no-breach")
@@ -780,6 +862,78 @@ def _cost_block(queries: int) -> dict:
                      f"runs this deployment. NOT a Nokia price and NOT an operator quote."}
 
 
+# Ölçülmüş tam kapsama tavanı (README "Measured limits"): tarama başına 20 sorgu ve 2 dakikalık
+# kadansla bir sahanın HERKESİNİ yeniden doğrulama penceresi içinde görebildiği işçi sayısı.
+# Demo sahası bu tavanın iki katından fazla — tavanın ne anlama geldiği ekranda böyle görünür.
+FULL_COVERAGE_CEILING = 110
+
+
+def _scale_block(site: SiteRuntime, sweeps: list[dict]) -> dict:
+    """Ölçek bloğu: bütçe kısıtının SAYISI — iddia değil, bu koşudan okunan ölçüm.
+
+    "Tam kapsama tavanı ~110 işçi/saha" cümlesi tek başına soyut. Burada kuyruğun gerçek derinliği,
+    taramanın kaç kişiye yetiştiği ve ihlal boyunca bir kez bile sorgulanamayan işçi sayısı
+    raporlanır. Büyük sahanın doğru modeli alt sahalardır; bunu saklamak yerine sayıyoruz.
+    """
+    breached = [s for s in sweeps if s.get("breached")]
+    depth = [s["budget"]["skipped_for_budget"] + s["budget"]["planned"] - s["budget"]["reserve_rechecks"]
+             for s in breached]
+    inside = [w for w in site.workers.values() if w.inside and not w.cleared]
+    never = [w.worker_id for w in inside if w.queries_used == 0]
+    budget = site.cfg.budget.queries_per_site_per_minute
+    reserve = int(math.ceil(budget * site.cfg.budget.reserve_ratio))
+    return {
+        "roster": len(site.workers),
+        "in_queue_at_breach": max(depth) if depth else 0,
+        "queue_depth_per_breached_sweep": depth,
+        "budget_per_sweep": budget,
+        "usable_per_sweep": budget - reserve,
+        "reserve_per_sweep": reserve,
+        "skipped_for_budget_per_sweep": [s["budget"]["skipped_for_budget"] for s in breached],
+        "never_queried_in_this_breach": len(never),
+        "full_coverage_ceiling_workers": FULL_COVERAGE_CEILING,
+        "over_ceiling": len(site.workers) > FULL_COVERAGE_CEILING,
+        "basis": (f"Measured on this run, not assumed. Our own ceiling is ~{FULL_COVERAGE_CEILING} workers "
+                  f"per site at {budget} queries per sweep on a two-minute cadence, and this roster of "
+                  f"{len(site.workers)} is "
+                  + (f"{len(site.workers) / FULL_COVERAGE_CEILING:.1f}x over it: the budget reaches "
+                     f"{budget - reserve} workers per sweep and the rest stay in the queue, counted above. "
+                     f"A site this size should be modelled as several sub-sites with their own budgets - we "
+                     f"would rather state that ceiling than be asked about it. "
+                     if len(site.workers) > FULL_COVERAGE_CEILING else "inside it. ")
+                  + "Free geofence events do the rest of the work: they cannot declare anybody safe, but "
+                    "they tell the ranking who was seen a minute ago and who has not been seen since the "
+                    "morning, and they cost nothing."),
+    }
+
+
+def _zone_block(site: SiteRuntime) -> dict:
+    """Alt bölgeler — gerçek Lusail mahalle adları, ama ETİKET olarak.
+
+    Çeper TEK parçadır ve öyle kalır: ölçülen 1000 m konum belirsizliği 500 m yarıçapın
+    mertebesinde olduğu için bir alt bölge şebekeden DOĞRULANAMAZ. Bu liste işveren etiketidir —
+    ekip gruplaması, WBGT atfı ve küme testi (aynı etiketteki kaç cihaz birlikte sustu) için
+    kullanılır; hiçbir koordinattan türetilmez ve çevresine geofence çizilmez.
+    """
+    zones = []
+    for zid, meta in ZONES.items():
+        ws = [w for w in site.workers.values() if w.micro_zone == zid]
+        if not ws:
+            continue
+        zones.append({"id": zid, "label": meta["label"], "detail": meta.get("detail", ""),
+                      "workers": len(ws),
+                      "inside": len([w for w in ws if w.inside and not w.cleared]),
+                      "silent": len([w for w in ws if w.reachable is False])})
+    return {"perimeter": "single — one geofence for the whole plot, never per zone",
+            "source": "Lusail precinct names; see fixtures/roster.json `_sources`",
+            "why_labels_only": ("Our own live measurement puts the platform's location uncertainty at "
+                               "1000 m against this 500 m perimeter, so a smaller sub-zone cannot be "
+                               "verified from the network. These are EMPLOYER labels used for crew "
+                               "grouping, WBGT attribution and the cluster test - never derived from a "
+                               "position, and no geofence is drawn around them."),
+            "list": zones}
+
+
 # Sıralamanın harcadığı basamaklar (bütçe bunlara harcanır) — eskalasyon sonrası çağrılar ayrı sayılır:
 # konum çekme / congestion / QoD bir hükümden SONRA gelir, "herkesi sorgula" dünyasında da gelirdi.
 VERIFICATION_APIS = ("location-verification", "device-reachability-status")
@@ -822,6 +976,8 @@ def _demo_out(site: SiteRuntime, sweeps: list[dict], scenario: str, headline: st
         "scenario": scenario, "headline": headline, "site": site.to_dict(), "sweeps": sweeps,
         "ledger": site.ledger, "coverage": site.coverage(), "degraded": store.degraded[-10:],
         "presence": site.presence_record(),
+        "scale": _scale_block(site, sweeps),
+        "zones": _zone_block(site),
         "totals": {
             "queries": site.queries_total,
             "queries_if_polled_everyone": naive["queries"],

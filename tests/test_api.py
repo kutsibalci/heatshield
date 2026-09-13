@@ -30,7 +30,7 @@ def client():
 
 
 def mk_site(client, jur="QA"):
-    r = client.post("/v1/sites", json={"name": "Lusail", "jurisdiction": jur, "lat": 25.38, "lng": 51.49, "radius_m": 500})
+    r = client.post("/v1/sites", json={"name": "Lusail", "jurisdiction": jur, "lat": 25.3917, "lng": 51.5299, "radius_m": 500})
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -342,3 +342,69 @@ def test_naive_baseline_is_counted_not_assumed(client):
     # elmayla elma: taban çizgisi doğrulama basamaklarını sayar, biz de doğrulama basamaklarını
     assert nb["verification_queries_made"] < nb["queries"]
     assert nb["verification_queries_made"] + nb["escalation_queries_made"] == sum(len(s["calls"]) for s in d["sweeps"])
+
+
+# ------------------------------------------------------------------ vardiya listesi (240 işçi, Lusail)
+# Bu testler demo VERİSİNİN sözleşmesini kilitler: arayüz bu alanları okuyor, ölçek iddiası bu
+# sayılara dayanıyor ve numaralar bilerek +99999 aralığında kalıyor.
+WORKER_FIELDS = {"worker_id", "name", "nationality", "trade", "crew", "micro_zone", "zone_label",
+                 "first_day_on_site", "prior_incident", "shift", "badge_in", "phone_masked", "phone_hash",
+                 "inside", "cleared", "state", "verdict", "confidence", "score", "vulnerability",
+                 "queries_used", "reachable", "reachable_via_operator", "presence_prior", "last_signal_at"}
+
+
+def test_demo_site_is_a_240_worker_lusail_roster(client):
+    d = client.post("/v1/demo/heat-day", json={}).json()
+    ws = d["site"]["workers"]
+    assert len(ws) == 240                                  # 13 adlı senaryo işçisi + 227 kalabalık
+    assert d["site"]["area"] == {"lat": 25.3917, "lng": 51.5299, "radius_m": 500}   # gerçek Lusail Marina
+    for w in ws:
+        assert WORKER_FIELDS <= set(w), f"{w['worker_id']} eksik alan: {WORKER_FIELDS - set(w)}"
+        assert w["name"] and w["nationality"] and w["trade"] and w["zone_label"]
+        # numaralar AYRILMIŞ +99999 aralığında kalır: hiçbir gerçek Katar numarası kullanılmıyor
+        assert w["phone_masked"].startswith("+99999")
+    assert {w["nationality"] for w in ws} >= {"Nepal", "India", "Bangladesh", "Pakistan",
+                                              "Sri Lanka", "Philippines", "Kenya", "Uganda"}
+    # adlandırılmış senaryo işçileri ve davranışları yerinde
+    named = {w["worker_id"]: w for w in ws}
+    assert named["W-002"]["name"].startswith("Bikash") and named["W-001"]["name"].startswith("Rajan")
+    assert named["W-008"]["prior_incident"] is True and named["W-009"]["shift"] == "night_to_day"
+
+
+def test_budget_ceiling_is_felt_at_240_workers(client):
+    d = client.post("/v1/demo/heat-day", json={}).json()
+    sc = d["scale"]
+    assert sc["roster"] == 240 and sc["over_ceiling"] is True
+    assert sc["full_coverage_ceiling_workers"] == 110 and sc["usable_per_sweep"] == 18
+    # her ihlalli taramada yüzlerce işçi sırada KALIR — tavan soyut bir cümle değil
+    assert len(sc["skipped_for_budget_per_sweep"]) == 4
+    assert all(n > 150 for n in sc["skipped_for_budget_per_sweep"])
+    assert sc["never_queried_in_this_breach"] > 100
+    # ve kuyruk derinliği sahadaki işçi sayısı kadardır, bütçe kadar değil
+    assert all(depth > sc["usable_per_sweep"] for depth in sc["queue_depth_per_breached_sweep"])
+
+
+def test_ban_hour_rotation_is_free_and_does_not_clear_anyone(client):
+    d = client.post("/v1/demo/heat-day", json={}).json()
+    r = d["ban_hour_rotation"]
+    assert r["queries"] == 0 and r["free_events"] == 2 * r["returned_inside"] + r["welfare_compound"]
+    entry = next(e for e in d["ledger"] if e["event"] == "ban_hour_rotation")
+    assert entry["source"] == "geofencing-subscriptions" and entry["cost"] == 0
+    # geri girenler KUYRUKTAN DÜŞMEZ: ücretsiz bir olay kimseyi güvende ilan etmez
+    inside = [w for w in d["site"]["workers"] if w["inside"] and not w["cleared"]]
+    assert len(inside) > r["returned_inside"]
+    # refah kampındakiler "presumed safe" → rezerv onları yeniden doğruluyor
+    assert any(s["budget"]["reserve_rechecks"] > 0 for s in d["sweeps"] if s["breached"])
+
+
+def test_zone_labels_are_real_names_but_the_perimeter_stays_single(client):
+    d = client.post("/v1/demo/heat-day", json={}).json()
+    labels = {z["label"] for z in d["zones"]["list"]}
+    assert labels >= {"Marina District", "Energy City", "Fox Hills", "Al Erkyah"}
+    assert "single" in d["zones"]["perimeter"]
+    assert "1000 m" in d["zones"]["why_labels_only"]        # alt bölge şebekeden doğrulanamaz
+    # tek çeper: her işçi için TEK bir saha aboneliği var, alt bölge başına abonelik YOK
+    assert len(d["site"]["subscriptions"]) == len(d["site"]["workers"])
+    assert d["site"]["area"]["radius_m"] == 500
+    # alt bölge toplamları vardiya listesini verir — etiket, ayrı bir çeper değil
+    assert sum(z["workers"] for z in d["zones"]["list"]) == len(d["site"]["workers"])

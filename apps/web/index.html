@@ -135,7 +135,7 @@
       <a data-sec="scenarios"><span class="dot"></span>Scenarios</a>
     </nav>
     <div class="foot">
-      <div><b>6</b> CAMARA APIs · <b>126</b> tests</div>
+      <div><b>6</b> CAMARA APIs · <b>130</b> tests</div>
       <div id="health" style="margin-top:4px"></div>
       <div id="sched" style="margin-top:4px"></div>
     </div>
@@ -180,6 +180,14 @@
           <div class="budget" id="budgetBoxes"></div>
           <div class="kv" id="bLine" style="margin-top:9px"></div>
           <div class="small" id="plannerLine" style="margin-top:7px"></div>
+        </div>
+
+        <div class="card" id="scaleCard" style="display:none">
+          <div class="lbl">Scale — measured on this run
+            <span class="i" data-tip="Our own ceiling is about 110 workers per site at 20 queries per sweep on a two-minute cadence. This card says where this site sits against that number, counted from the sweeps themselves rather than assumed.">i</span></div>
+          <div class="big" id="scaleRoster">—</div>
+          <div class="small" id="scaleBasis"></div>
+          <div class="kv" id="scaleLine" style="margin-top:9px"></div>
         </div>
 
         <div class="card">
@@ -395,8 +403,8 @@ function renderRoster(workers, breached) {
     return `<tr class="${w.state === 'distress' ? 'medic' : ''}">
       <td>${esc(w.worker_id)}<div class="small">${esc(w.masked || '')}</div></td>
       <td>${esc(w.name || '—')}${w.nationality ? `<div class="small">${esc(w.nationality)}</div>` : ''}</td>
-      <td class="small">${esc(w.trade || w.role || '—')}${w.shift ? `<div class="small">${esc(w.shift)}</div>` : ''}</td>
-      <td class="small">${esc(w.zone_name || w.micro_zone || '—')}</td>
+      <td class="small">${esc(w.trade || w.role || '—')}${w.crew ? `<div class="small">${esc(w.crew)}</div>` : ''}${w.shift ? `<div class="small">${esc(w.shift)}</div>` : ''}</td>
+      <td class="small">${esc(w.zone_label || w.micro_zone || '—')}</td>
       <td class="small">${esc(w.first_day_on_site || '—')}${w.prior_incident ? '<div class="small" style="color:var(--warn)">prior heat incident</div>' : ''}</td>
       <td>${w.vulnerability != null ? w.vulnerability + '×' : '—'}</td>
       <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dot};margin-right:6px"></span><span class="small">${esc(what)}</span></td>
@@ -543,6 +551,22 @@ function applySweep(s, data) {
   $('callsPre').textContent = JSON.stringify(s.calls || [], null, 1);
   $('escCount').textContent = (data.totals || {}).escalations ?? (s.escalations || []).length;
 }
+function renderScale(sc, rot) {
+  const el = $('scaleCard');
+  if (!sc) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const skipped = sc.skipped_for_budget_per_sweep || [];
+  const worst = skipped.length ? Math.max(...skipped) : 0;
+  $('scaleRoster').innerHTML = `${sc.roster}<span style="font-size:15px;font-weight:600;color:#7E8EA3"> workers</span>`;
+  const over = sc.over_ceiling;
+  $('scaleBasis').innerHTML = over
+    ? `<b style="color:var(--warn)">${(sc.roster / sc.full_coverage_ceiling_workers).toFixed(1)}× over our own full-coverage ceiling</b> of ${sc.full_coverage_ceiling_workers} workers per site — a site this size should be modelled as several sub-sites with their own budgets. We would rather state that than be asked about it.`
+    : `within our measured full-coverage ceiling of ${sc.full_coverage_ceiling_workers} workers per site.`;
+  const free = rot ? ` · <b>${rot.free_events}</b> free geofence events did the rest, at <b>${rot.queries}</b> query cost` : '';
+  $('scaleLine').innerHTML = `Queue at breach <b>${sc.in_queue_at_breach}</b> · the budget reaches <b>${sc.usable_per_sweep}</b> a sweep `
+    + `(<b>${sc.reserve_per_sweep}</b> held as a presumed-safe reserve) · <span style="color:var(--bad)">worst sweep left <b>${worst}</b> waiting</span> · `
+    + `<b>${sc.never_queried_in_this_breach}</b> never queried once in this breach${free}`;
+}
 function renderPresence(p) {
   if (!p) return;
   const n = p.coordinates_stored ?? 0;
@@ -604,7 +628,7 @@ function clearScreen() {
   $('qTotal').textContent = '0'; $('qBasis').innerHTML = QBASIS_EMPTY; $('qBasis').title = ''; $('escCount').textContent = '0';
   $('cov').textContent = '—'; $('covNote').textContent = ''; $('costNote').textContent = ''; $('costNote').title = '';
   $('histLine').innerHTML = 'The ledger is itself a per-worker presence record — bounded and counted. Coordinates enter it only after an escalation, once, coarsened to 3 decimals (coordinates stored: —).';
-  $('jurCard').style.display = 'none'; $('guardCard').style.display = 'none';
+  $('jurCard').style.display = 'none'; $('guardCard').style.display = 'none'; $('scaleCard').style.display = 'none';
   $('callsPre').textContent = '[]'; $('degPre').textContent = '[]'; $('rawPre').textContent = '{}';
   ['nLive', 'nWorkers', 'nDec', 'nLedger'].forEach(i => $(i).textContent = '');
   openCases = new Map();
@@ -616,7 +640,7 @@ async function play(d) {
   $('rawPre').textContent = JSON.stringify(d, null, 1);
   $('headline').textContent = d.headline ? 'What you will see: ' + d.headline : '';
   $('siteName').textContent = (d.site || {}).name || '—';
-  renderTotals(d); renderPresence(d.presence); renderCoverage(d.coverage); renderBanner(d);
+  renderTotals(d); renderPresence(d.presence); renderCoverage(d.coverage); renderBanner(d); renderScale(d.scale, d.ban_hour_rotation);
   $('degPre').textContent = JSON.stringify(d.degraded || [], null, 1);
   for (let i = 0; i < sweeps.length; i++) {
     const s = sweeps[i];

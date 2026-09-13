@@ -98,9 +98,9 @@ Three cards: Qatar prohibited · Saudi Arabia no ban · UAE prohibited.
 
 ## 2:50–3:00 · Closing card — *Presentation*
 
-Final frame, plain text: `heatshield-demo.onrender.com/demo` · `github.com/kutsibalci/heatshield` · *126 tests · 6 CAMARA APIs*.
+Final frame, plain text: `heatshield-demo.onrender.com/demo` · `github.com/kutsibalci/heatshield` · *130 tests · 6 CAMARA APIs*.
 
-> "A hundred and twenty-six tests. Six APIs. And not one worker pressed a single button. We do not claim a safety
+> "A hundred and thirty tests. Six APIs. And not one worker pressed a single button. We do not claim a safety
 > guarantee — the inputs are best-effort and we publish their limits. What we produce is the evidence that does not
 > exist today."
 

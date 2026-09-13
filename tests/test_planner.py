@@ -172,7 +172,7 @@ def _sweep_with_model(fake_call, wbgt=35.6):
 
     t0 = datetime(2026, 8, 17, 9, 0, tzinfo=timezone.utc)
     cfg = Config()
-    site = SiteRuntime(site_id="t1", name="Test", lat=25.38, lng=51.49, radius_m=500, cfg=cfg)
+    site = SiteRuntime(site_id="t1", name="Test", lat=25.3917, lng=51.5299, radius_m=500, cfg=cfg)
     for i in range(1, 7):
         w = new_worker(f"W-00{i}", f"+9999991000{i}", name=f"Worker {i}", micro_zone="z1",
                        first_day_on_site=(t0 - timedelta(days=i)).date().isoformat())
