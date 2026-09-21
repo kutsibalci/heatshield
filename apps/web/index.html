@@ -40,7 +40,8 @@
   .verdicts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
   .verdicts .card{margin:0}
   .conf{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--muted)}
-  .ledger{max-height:320px;overflow:auto;font-size:12px}
+  .ledger{max-height:min(58vh,620px);overflow-y:auto;overflow-x:hidden;font-size:12px}
+  .ledger .row .d{line-height:1.45}
   .ledger .row{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)}
   .ledger .row .t{color:var(--muted);font-family:ui-monospace,Consolas,monospace;min-width:40px}
   .ledger .row .trg{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;align-self:flex-start;line-height:1.4}
@@ -142,13 +143,6 @@
         <div style="overflow-x:auto;margin-top:6px"><table><thead><tr><th>#</th><th>Worker</th><th>Score</th><th>Vulnerability</th><th>This sweep</th><th>Rationale</th></tr></thead><tbody id="rankRows"><tr><td colspan="6" class="small">—</td></tr></tbody></table></div>
       </div>
 
-      <div class="card" style="margin-top:16px">
-        <h3>Evidence ledger (compliance record)</h3>
-        <div class="small">A timestamped, per-worker record for the auditor and the insurer — times shown in site local time (<span id="ledgerTz">UTC+3</span>). This ledger is the product itself.</div>
-        <div class="small" style="margin-top:4px">Tag after the time = what triggered the row: <b>demo</b> replayed by a demo button · <b>scheduler</b> the agent's own clock, nobody pressed a button · <b>api</b> an external call · <b>setup</b> site provisioning and free geofence events. Right-hand column = data source (recorded fixture, rules, the operator API, or its error).</div>
-        <div class="small" id="ledgerCount" style="margin-top:4px"></div>
-        <div class="ledger" id="ledger"><div class="small" style="margin-top:8px">—</div></div>
-      </div>
     </div>
 
     <div>
@@ -185,6 +179,14 @@
       </div>
     </div>
   </div>
+
+<div class="card" style="margin-top:16px">
+      <h3>Evidence ledger (compliance record)</h3>
+      <div class="small">A timestamped, per-worker record for the auditor and the insurer — times shown in site local time (<span id="ledgerTz">UTC+3</span>). This ledger is the product itself.</div>
+      <div class="small" style="margin-top:4px">Tag after the time = what triggered the row: <b>demo</b> replayed by a demo button · <b>scheduler</b> the agent's own clock, nobody pressed a button · <b>api</b> an external call · <b>setup</b> site provisioning and free geofence events. Right-hand column = data source (recorded fixture, rules, the operator API, or its error).</div>
+      <div class="small" id="ledgerCount" style="margin-top:4px"></div>
+      <div class="ledger" id="ledger"><div class="small" style="margin-top:8px">—</div></div>
+    </div>
 </main>
 <script src="/static/base.js"></script>
 <script>
