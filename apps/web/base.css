@@ -17,8 +17,8 @@ button{background:var(--accent);color:#04121c;border:0;border-radius:10px;paddin
    harf harf dikey diziyordu (juri ekraninda okunmuyordu). flex-basis 150px ile
    val kendi satirina iner, kirilma karakter bazinda olmaz. */
 .explain li{font-size:13px;margin:4px 0;list-style:none;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:flex-start}
-.explain li .sig{font-family:ui-monospace,Consolas,monospace;color:var(--accent);flex:0 0 auto}
-.explain li .val{flex:1 1 150px;min-width:0;overflow-wrap:break-word}
+.explain li .sig{font-family:ui-monospace,Consolas,monospace;color:var(--accent);flex:0 0 118px}
+.explain li .val{flex:1 1 300px;min-width:0;overflow-wrap:break-word;line-height:1.55}
 .explain li.trig .sig{color:var(--warn)}.explain li .w{color:var(--muted);font-size:11px;margin-left:auto;white-space:nowrap}
 .explain ul{padding:0;margin:0}
 .kv{display:flex;gap:6px;font-size:13px;color:var(--muted);margin:2px 0}.kv b{color:var(--text)}

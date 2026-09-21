@@ -1,6 +1,7 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" translate="no" class="notranslate">
 <head>
+<meta name="google" content="notranslate">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HeatShield — Heat Stroke Protection on Construction Sites</title>
@@ -37,7 +38,7 @@
   td .badge{padding:2px 7px;font-size:11px;margin:1px 2px 1px 0}
   tr.skipped td{opacity:.5}
   tr.medic td{background:rgba(239,68,68,.09)}
-  .verdicts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+  .verdicts{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px}
   .verdicts .card{margin:0}
   .conf{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--muted)}
   .ledger{max-height:min(58vh,620px);overflow-y:auto;overflow-x:hidden;font-size:12px}
@@ -136,21 +137,10 @@
         </div>
       </div>
 
-      <div class="card" style="margin-top:16px">
-        <h3>Who gets queried? — exposure ranking (this sweep)</h3>
-        <div class="small">score = severity × exposure_minutes × staleness × vulnerability · The budget is spent from the top down and stops there, even if the list is not finished.</div>
-        <div class="small" style="margin-top:4px">“This sweep” column: blue = the operator answered · orange = the device is silent, or the worker is waiting for budget · red = no answer from the operator, or a coordinate (privacy-sensitive, once). Faded row = not queried this sweep · red row = medic dispatched.</div>
-        <div style="overflow-x:auto;margin-top:6px"><table><thead><tr><th>#</th><th>Worker</th><th>Score</th><th>Vulnerability</th><th>This sweep</th><th>Rationale</th></tr></thead><tbody id="rankRows"><tr><td colspan="6" class="small">—</td></tr></tbody></table></div>
-      </div>
 
     </div>
 
     <div>
-      <div class="card">
-        <h3>Silent device verdicts</h3>
-        <div class="small">Not every unreachable device is an emergency. The cluster test + device history + trajectory tell them apart; only the case that survives goes to a human. Cards stay on screen for the whole breach and are cleared when it ends.</div>
-        <div class="verdicts" id="verdicts" style="margin-top:10px"><div class="small">—</div></div>
-      </div>
       <div class="card" id="jurCard" style="margin-top:16px;display:none">
         <h3>Jurisdiction = a configuration record</h3>
         <div class="jur" id="jurBox"><div class="small">Press the “Three jurisdictions” button.</div></div>
@@ -179,6 +169,19 @@
       </div>
     </div>
   </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Who gets queried? — exposure ranking (this sweep)</h3>
+      <div class="small">score = severity × exposure_minutes × staleness × vulnerability · The budget is spent from the top down and stops there, even if the list is not finished.</div>
+      <div class="small" style="margin-top:4px">“This sweep” column: blue = the operator answered · orange = the device is silent, or the worker is waiting for budget · red = no answer from the operator, or a coordinate (privacy-sensitive, once). Faded row = not queried this sweep · red row = medic dispatched.</div>
+      <div style="overflow-x:auto;margin-top:6px"><table><thead><tr><th>#</th><th>Worker</th><th>Score</th><th>Vulnerability</th><th>This sweep</th><th>Rationale</th></tr></thead><tbody id="rankRows"><tr><td colspan="6" class="small">—</td></tr></tbody></table></div>
+    </div>
+
+    <div class="card">
+      <h3>Silent device verdicts</h3>
+      <div class="small">Not every unreachable device is an emergency. The cluster test + device history + trajectory tell them apart; only the case that survives goes to a human. Cards stay on screen for the whole breach and are cleared when it ends.</div>
+      <div class="verdicts" id="verdicts" style="margin-top:10px"><div class="small">—</div></div>
+    </div>
 
 <div class="card" style="margin-top:16px">
       <h3>Evidence ledger (compliance record)</h3>
