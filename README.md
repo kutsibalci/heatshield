@@ -2,6 +2,10 @@
 
 **An autonomous heat-stress protection agent that uses the mobile network itself as the sensing layer.**
 
+> 🏆 **Top 10 finalist — GSMA MENA Ignite Hackathon 2026.** One of ten teams selected from 1,348
+> (1,800+ participants across 22 Arab League countries and Türkiye), presented live to the jury on
+> 21 September 2026. Built by one person. **[Watch the 3-minute demo →](https://youtu.be/z1N6U4yv6xA)**
+
 MENA Ignite Hackathon 2026 · Theme 6 (Climate Resilience) · Nokia Network as Code (CAMARA)
 
 **Live demo:** https://heatshield-demo.onrender.com/demo — the six one-click scenarios below, running in fixture mode with no operator credentials on the instance. Free tier: the first load after idle can take up to a minute.
@@ -282,6 +286,19 @@ enough to reproduce the probe above) and your own RapidAPI key in `NAC_RAPIDAPI_
 and `WEBHOOK_TOKEN` from their placeholder values before any deployment. `fixture` and `simulator` modes need no
 credentials at all — the demos and the full test suite run with an empty `.env`.
 
+
+## Status and what comes next
+
+- **13 Sep 2026** — prototype submitted. **21 Sep 2026** — Demo Day: presented live to the jury as one of
+  ten finalists. Results pending.
+- **Next, in this order:**
+  1. Measure what Quality on Demand actually adds on the escalation path — the jury asked, and we have not
+     measured it yet. Until then it stays what it is today: outside the verification budget and outside the
+     evidence ledger.
+  2. Ask a main contractor's HSE lead, an insurer's claims desk and an employment lawyer whether
+     network-sourced presence evidence carries weight in a Qatari incident investigation. This is not
+     engineering work, and it decides whether the product exists.
+  3. Obtain an operator rate card, so the per-worker-month price stops being an assumption.
 
 ## A note on the phone numbers in this repository
 
