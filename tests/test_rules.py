@@ -217,3 +217,22 @@ def test_config_from_env_and_jurisdiction_switch(monkeypatch):
     assert c.jurisdiction.wbgt_limit_c == 31.0
     assert c.with_jurisdiction("SA").jurisdiction.code == "SA"
     assert "budget" in c.to_dict() and "distress" in c.to_dict()
+
+
+def test_env_wbgt_limit_survives_a_jurisdiction_switch(monkeypatch):
+    """Her saha `with_jurisdiction()` üzerinden kurulur; ortamdaki eşik orada kaybolmamalı."""
+    monkeypatch.setenv("HS_WBGT_LIMIT_C", "30.0")
+    c = Config.from_env()
+    assert c.with_jurisdiction("QA").jurisdiction.wbgt_limit_c == 30.0
+    assert c.with_jurisdiction("SA").jurisdiction.wbgt_limit_c == 30.0
+    assert Config().with_jurisdiction("QA").jurisdiction.wbgt_limit_c == 32.1   # ortam yoksa yasal değer
+
+
+def test_medic_coordinate_is_not_starved_by_unseen_workers():
+    """Eskalasyon sonrası koordinat sağlıkçının koşacağı yerdir; hiç sorgulanmamışların arkasında beklemez."""
+    breach = NOON - timedelta(minutes=30)
+    escalated = _cand(999, 1.0, escalated=True, last_verified_at=(NOON - timedelta(minutes=5)).isoformat())
+    unseen = [_cand(i, 50) for i in range(1, 41)]
+    plan = R.plan_verification(unseen + [escalated], 20, CFG, NOON, breach_started_at=breach)
+    assert plan[0].api == "location_retrieve" and plan[0].worker["worker_id"] == "W-999"
+    assert len([a for a in plan if a.pool == "main"]) == 18          # bütçe yine aşılmaz

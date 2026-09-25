@@ -327,8 +327,14 @@ def plan_verification(workers_without_exit: list[dict], budget: int, cfg: Config
         # kirilganlik belirliyor — ayni kohort her taramada kazaniyor. Urunun kendi cumlesi
         # "yirmi dakikadir gorulmeyen beklemesin" diyordu; kod bunu olcekte yapmiyordu.
         # Bu yuzden sert kisit: bu ihlal boyunca HIC sorgulanmamis isci, sorgulanmisin onune gecer.
-        return (0 if _unseen_this_breach(w) else 1,
-                -(w.get("score") or 0.0), -stale, w.get("masked") or "")
+        # ESKALASYON ONCE: saglikcinin kosacagi koordinat, hic sorgulanmamis isciler bitene kadar
+        # beklemez. 40 kisilik bir sahada o cagri planin disinda kaliyordu (olculdu).
+        # Butce yine asilmaz; koordinat kapisi yine tek seferlik (bkz. _next_step_for).
+        if w.get("escalated") and not w.get("location_retrieved"):
+            tier = 0
+        else:
+            tier = 1 if _unseen_this_breach(w) else 2
+        return (tier, -(w.get("score") or 0.0), -stale, w.get("masked") or "")
 
     ranked = sorted(workers_without_exit, key=_rank_key)
     tied = {s for s, n in Counter((w.get("score") or 0.0) for w in ranked).items() if n > 1}
@@ -349,7 +355,10 @@ def plan_verification(workers_without_exit: list[dict], budget: int, cfg: Config
             *([Explain("never_queried", True, 1.0,
                        "Not queried once since this breach began - takes absolute priority over anyone already "
                        "checked, however high their score. Nobody waits unseen while a verified worker is re-asked",
-                       source="rules", triggered=True)] if _unseen_this_breach(w) else []),
+                       source="rules", triggered=True)] if _unseen_this_breach(w) and api != "location_retrieve" else []),
+            *([Explain("escalation_first", True, 1.0,
+                       "An escalated case goes to the front: the medic's coordinate does not wait behind "
+                       "routine verification", source="rules", triggered=True)] if api == "location_retrieve" else []),
             Explain("budget", {"spent": spent, "usable": usable, "reserve": reserve}, 0.5, "Spent from the remaining budget", source="rules"),
         ]
         if (w.get("score") or 0.0) in tied:
