@@ -308,3 +308,7 @@ for its sandbox test devices. It is not assignable to a subscriber in any countr
 This was not the first choice. The fixtures originally used numbers in Qatar’s real mobile format,
 which are fictional but *plausible* — and a product built on privacy discipline should not publish
 plausible subscriber numbers for the country it is aimed at. They were moved.
+
+---
+
+© 2026 Hüseyin Kutsi Balcı — all rights reserved. See [LICENSE](LICENSE).
