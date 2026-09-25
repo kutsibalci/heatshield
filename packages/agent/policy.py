@@ -19,6 +19,7 @@ Gizlilik: ham telefon numarası yalnızca `WorkerRuntime.phone` içinde ve sadec
 """
 from __future__ import annotations
 
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -171,6 +172,14 @@ class SiteRuntime:
     # CAMARA abonelik başına tek olay tipi ister → işçi başına İKİ abonelik.
     subscriptions: dict[str, str] = field(default_factory=dict)        # worker_id → area-entered abonelik id
     subscriptions_left: dict[str, str] = field(default_factory=dict)   # worker_id → area-left abonelik id
+    # ESZAMANLILIK: yazanlar (tarama, isci ekleme, olay, WBGT) bu kilidi tutar — saha basina, ki
+    # bir sahadaki yavas operator cagrisi digerlerini durdurmasin. Okuyanlar kilit TUTMAZ: taramanin
+    # disinda buyuyen sozlukler (workers, subscriptions*, qod_sessions) yerinde degil, kopyalanip
+    # yeniden atanarak degistirilir; okuyucunun elindeki sozluk hic degismez.
+    lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
+    # Bu sahaya ozel planlayici (demo/test). None → surecin planlayicisi. Ortam degiskeni ya da sinif
+    # metodu yamamak TUM surecteki taramalari etkiliyordu.
+    planner: Any = field(default=None, repr=False, compare=False)
 
     # ---- kanıt defteri
     def log(self, now: datetime, event: str, detail: str, *, worker: WorkerRuntime | None = None,
@@ -334,7 +343,7 @@ def _rerank_with_model(site: SiteRuntime, plan: list, now: datetime, st: dict, c
     yapısal olarak denetler: yeni işçi ekleyemez, API seçemez, bütçeyi aşamaz, tekrar üretemez.
     Reddedilirse kuralların sırası uygulanır ve reddin gerekçesi defterde görünür.
     """
-    p = _planner()
+    p = site.planner or _planner()
     name = getattr(p, "name", "deterministic-rules")
     if getattr(p, "provider", "none") == "none" or len(plan) < 2:
         return plan, {"used": False, "planner": name, "reason": "deterministic order applied"}
@@ -800,8 +809,9 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
             site.queries_total += 1
             sid = (data or {}).get("sessionId")
             if sid:
-                site.qod_sessions[w.worker_id] = {"session_id": sid, "qos_profile": cfg.qod_profile,
-                                                  "status": (data or {}).get("qosStatus"), "source": source, "at": _iso(now)}
+                site.qod_sessions = {**site.qod_sessions, w.worker_id: {
+                    "session_id": sid, "qos_profile": cfg.qod_profile,
+                    "status": (data or {}).get("qosStatus"), "source": source, "at": _iso(now)}}
                 site.state = "emergency"
                 site.log(now, "qod_session", f"Guaranteed bandwidth opened ({cfg.qod_profile}) — medic video assessment",
                          worker=w, source=source, extra={"session_id": sid})
@@ -870,6 +880,14 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
     site.prune_ledger(cfg)
     report["presence_record"] = site.presence_record()
     report["budget"]["spent"] = len(report["calls"])   # plan dışı acil çağrılar (congestion / QoD) dahil
+    # Bütçe PLANI keser; sessiz bir cihazın canlılık/tıkanıklık kontrolü ve QoD oturumu planın dışındadır
+    # ve bilerek kesilmez. Toplam gizlenmez, havuz bazında ayrıştırılır.
+    by_pool: dict[str, int] = {}
+    for c in report["calls"]:
+        by_pool[c["pool"]] = by_pool.get(c["pool"], 0) + 1
+    planned_spent = by_pool.get("main", 0) + by_pool.get("reserve", 0)
+    report["budget"].update({"by_pool": by_pool, "planned_spent": planned_spent,
+                             "outside_plan": report["budget"]["spent"] - planned_spent})
     report["state"] = site.state
     report["workers"] = [w.to_dict() for w in site.workers.values()]
     report["coverage"] = site.coverage()
