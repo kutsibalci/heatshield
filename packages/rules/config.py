@@ -6,7 +6,7 @@ Kaynak: idea capture §6 (bölgesel ölçeklenebilirlik) ve §8 (doğrulama büt
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 
 
 @dataclass(frozen=True)
@@ -124,6 +124,10 @@ class DistressConfig:
         return asdict(self)
 
 
+def _with_limit(jur: Jurisdiction, limit_c: float | None) -> Jurisdiction:
+    return jur if limit_c is None else replace(jur, wbgt_limit_c=limit_c)
+
+
 @dataclass
 class Config:
     jurisdiction: Jurisdiction = QATAR
@@ -137,13 +141,15 @@ class Config:
     qod_profile: str = "QOS_E"
     qod_app_server_ipv4: str = "203.0.113.10"   # sağlıkçı video sunucusu (demo; RFC 5737)
     min_perimeter_radius_m: float = 500.0
+    # HS_WBGT_LIMIT_C: dağıtımın kendi eşiği. Her saha `with_jurisdiction()` ile kurulduğu için
+    # burada saklanır; yoksa yargı alanı değişince yasal değere sessizce geri dönülüyordu.
+    wbgt_limit_override_c: float | None = None
 
     @classmethod
     def from_env(cls, jurisdiction_code: str | None = None) -> "Config":
         e = os.environ.get
         jur = JURISDICTIONS.get((jurisdiction_code or e("HS_JURISDICTION", "QA")).upper(), QATAR)
-        if e("HS_WBGT_LIMIT_C"):
-            jur = Jurisdiction(jur.name, jur.code, float(e("HS_WBGT_LIMIT_C")), jur.summer_ban, jur.tz_offset_hours, jur.legal_ref)
+        override = float(e("HS_WBGT_LIMIT_C")) if e("HS_WBGT_LIMIT_C") else None
         budget = BudgetConfig(
             queries_per_site_per_minute=int(e("HS_BUDGET_PER_MIN", "20")),
             reserve_ratio=float(e("HS_RESERVE_RATIO", "0.1")),
@@ -155,12 +161,13 @@ class Config:
             prior_incident=float(e("HS_W_PRIOR_INCIDENT", "1.5")),
             shift_transition=float(e("HS_W_SHIFT_TRANSITION", "1.3")),
         )
-        return cls(jurisdiction=jur, budget=budget, vulnerability=vul,
-                   qod_profile=e("HS_QOD_PROFILE", "QOS_E"), qod_app_server_ipv4=e("HS_QOD_APP_SERVER", "203.0.113.10"))
+        return cls(jurisdiction=_with_limit(jur, override), budget=budget, vulnerability=vul,
+                   qod_profile=e("HS_QOD_PROFILE", "QOS_E"), qod_app_server_ipv4=e("HS_QOD_APP_SERVER", "203.0.113.10"),
+                   wbgt_limit_override_c=override)
 
     def with_jurisdiction(self, code: str) -> "Config":
-        return Config(JURISDICTIONS.get(code.upper(), self.jurisdiction), self.budget, self.vulnerability, self.distress,
-                      self.qod_profile, self.qod_app_server_ipv4, self.min_perimeter_radius_m)
+        jur = JURISDICTIONS.get(code.upper(), self.jurisdiction)
+        return replace(self, jurisdiction=_with_limit(jur, self.wbgt_limit_override_c))
 
     def to_dict(self) -> dict:
         return {
