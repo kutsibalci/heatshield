@@ -880,6 +880,14 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
     site.prune_ledger(cfg)
     report["presence_record"] = site.presence_record()
     report["budget"]["spent"] = len(report["calls"])   # plan dışı acil çağrılar (congestion / QoD) dahil
+    # Bütçe PLANI keser; sessiz bir cihazın canlılık/tıkanıklık kontrolü ve QoD oturumu planın dışındadır
+    # ve bilerek kesilmez. Toplam gizlenmez, havuz bazında ayrıştırılır.
+    by_pool: dict[str, int] = {}
+    for c in report["calls"]:
+        by_pool[c["pool"]] = by_pool.get(c["pool"], 0) + 1
+    planned_spent = by_pool.get("main", 0) + by_pool.get("reserve", 0)
+    report["budget"].update({"by_pool": by_pool, "planned_spent": planned_spent,
+                             "outside_plan": report["budget"]["spent"] - planned_spent})
     report["state"] = site.state
     report["workers"] = [w.to_dict() for w in site.workers.values()]
     report["coverage"] = site.coverage()
