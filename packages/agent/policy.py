@@ -77,6 +77,7 @@ class WorkerRuntime:
     inside: bool = True                       # geofence olaylarından (ücretsiz)
     entered_at: datetime | None = None        # sahaya giriş anı — maruziyet penceresinin başlangıcı
     exited_at: datetime | None = None
+    last_geofence_at: datetime | None = None  # en son UYGULANAN geofence olayinin zamani (sira korumasi)
     last_signal_at: datetime | None = None
     last_verified_at: datetime | None = None
     verified_inside: bool | None = None
@@ -175,7 +176,8 @@ class SiteRuntime:
     def log(self, now: datetime, event: str, detail: str, *, worker: WorkerRuntime | None = None,
             source: str = "rules", explain: list | None = None, extra: dict | None = None) -> dict:
         entry = {
-            "seq": len(self.ledger) + 1, "t": _iso(now), "site_id": self.site_id, "event": event, "detail": detail,
+            # Budanan satirlar da sayilir: numara bir satiri omru boyunca gosterir, geri gitmez.
+            "seq": self.ledger_pruned + len(self.ledger) + 1, "t": _iso(now), "site_id": self.site_id, "event": event, "detail": detail,
             "worker_id": worker.worker_id if worker else None, "worker_masked": worker.masked if worker else None,
             "source": source, "explain": [e.to_dict() if hasattr(e, "to_dict") else e for e in (explain or [])],
         }
@@ -261,6 +263,15 @@ def apply_geofence_event(site: SiteRuntime, worker_id: str, kind: str, now: date
     # ediyordu. Bir yazim hatasi bir isciyi guvenlik gozunden silmemeli.
     if kind not in ("enter", "area-entered", "exit", "left", "area-left"):
         raise ValueError(f"unknown geofence event kind: {kind!r}")
+    # SIRA KORUMASI: webhook teslimi sira garantisi vermez. 10:00 girisinden SONRA teslim edilen
+    # 09:00 cikisi eskiden isciyi disari atiyor ve kuyruktan dusuruyordu. Eski olay uygulanmaz,
+    # ama defterden de saklanmaz.
+    if w.last_geofence_at is not None and now < w.last_geofence_at:
+        return site.log(now, "geofence_out_of_order",
+                        f"A {kind} event from {_iso(now)} arrived after a newer one ({_iso(w.last_geofence_at)}) "
+                        f"— recorded, not applied", worker=w, source="geofencing-subscriptions",
+                        extra={"kind": kind, "newer_event_at": _iso(w.last_geofence_at)})
+    w.last_geofence_at = now
     if kind in ("enter", "area-entered"):
         w.inside, w.exited_at, w.cleared = True, None, False
         w.verified_inside, w.last_verified_at = True, now
@@ -575,6 +586,7 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
         report["ledger_added"] = site.ledger[quiet_from:]
         return report
 
+    ledger_from = len(site.ledger)
     breach_is_new = site.breach_started_at is None
     if breach_is_new:
         site.breach_started_at = now
@@ -582,7 +594,6 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                  extra={"wbgt_c": site.wbgt_c, "level": st["level"]})
     if site.state == "passive_watch":
         site.state = "alert"
-    ledger_from = len(site.ledger)
 
     # ---- Move 1b: vardiya listesiyle mutabakat. Her ihlalin başında, sonra periyodik.
     reconciled = _reconcile_roster(site, now, cfg, force=breach_is_new)
@@ -731,9 +742,14 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                          worker=w, source=source)
             report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "location-retrieval",
                                     "pool": act.pool, "result": bool(c), "source": source, "latency_ms": ms, "reason": act.reason})
-            site.log(now, "location_retrieve", "A ONE-TIME coordinate after escalation — for the medic", worker=w,
-                     source=source, explain=act.explain, extra={"coarse": {"lat": round(float(c.get("latitude", 0)), 3),
-                                                                           "lng": round(float(c.get("longitude", 0)), 3)}})
+            # Merkez gelmediyse (0, 0) YAZILMAZ: sahte bir koordinat hem saglikciyi yaniltir hem
+            # `coordinates_stored` sayacini sisirir.
+            stored = w.last_location if (c and _trusted(source)) else None
+            site.log(now, "location_retrieve",
+                     "A ONE-TIME coordinate after escalation — for the medic" if stored else
+                     "A ONE-TIME coordinate was requested after escalation — none usable came back; the gate is closed",
+                     worker=w, source=source, explain=act.explain,
+                     extra={"coarse": {"lat": stored["lat"], "lng": stored["lng"]} if stored else None})
     # ---- 4) §9: bayılma mı, ağ mı, pil mi, çıkış mı?
     for w in unreachable_now:
         zone_peers = [x for x in site.workers.values() if x.micro_zone == w.micro_zone and x.worker_id != w.worker_id]
@@ -849,12 +865,13 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                                       "trigger": "prolonged_exposure"})
 
     site.last_sweep_at, site.sweeps = now, site.sweeps + 1
+    # Rapor dilimi BUDAMADAN ONCE alinir: budama bastan siler ve `ledger_from` indeksini kaydirir.
+    report["ledger_added"] = site.ledger[ledger_from:]
     site.prune_ledger(cfg)
     report["presence_record"] = site.presence_record()
     report["budget"]["spent"] = len(report["calls"])   # plan dışı acil çağrılar (congestion / QoD) dahil
     report["state"] = site.state
     report["workers"] = [w.to_dict() for w in site.workers.values()]
-    report["ledger_added"] = site.ledger[ledger_from:]
     report["coverage"] = site.coverage()
     report["note"] = ("Move 2/3 — the budget was spent in rank order; a coordinate was taken only after escalation, once."
                       if report["calls"] else "There is a breach but no new worker to query (all of them freshly verified).")
