@@ -10,6 +10,7 @@ os.environ.setdefault("NAC_MODE", "fixture")
 os.environ["WEBHOOK_TOKEN"] = "test-token"
 
 import api.main as m  # noqa: E402
+from api import demo, runtime, scheduler, security  # noqa: E402
 
 AUTH = {"Authorization": "Bearer test-token"}          # webhook (operator notifications)
 ADMIN = {"Authorization": "Bearer test-api-token"}     # admin: write endpoints and personal data
@@ -23,8 +24,8 @@ GEO_LEFT = "org.camaraproject.geofencing-subscriptions.v0.area-left"
 @pytest.fixture
 def client():
     m.store.reset()
-    m.WEBHOOK_TOKEN = "test-token"
-    m.API_TOKEN = "test-api-token"
+    security.WEBHOOK_TOKEN = "test-token"
+    security.API_TOKEN = "test-api-token"
     m.DEMO_LIMITER.reset()
     m.nac.breaker._states.clear()
     for _, phone, *_ in m.NAMED:
@@ -313,7 +314,7 @@ def test_scheduler_survives_a_failing_sweep(client, monkeypatch):
     def boom(*a, **kw):
         raise RuntimeError("nac exploded")
 
-    monkeypatch.setattr(m, "step", boom)
+    monkeypatch.setattr(scheduler, "step", boom)
     before = m.scheduler.errors
     assert m.scheduler.tick(NOON) == []                            # it blows up but the task does not die
     assert m.scheduler.errors == before + 1 and "nac exploded" in m.scheduler.last_error
@@ -425,7 +426,7 @@ def test_wbgt_posted_via_the_api_goes_stale(client):
 
 
 def test_new_sites_default_to_the_configured_jurisdiction(client, monkeypatch):
-    monkeypatch.setattr(m, "CFG", m.Config.from_env("SA"))
+    monkeypatch.setattr(runtime, "CFG", m.Config.from_env("SA"))
     r = client.post("/v1/sites", json={"name": "Riyadh"})
     assert r.status_code == 201
     assert m.store.sites[r.json()["site_id"]].cfg.jurisdiction.code == "SA"
@@ -452,7 +453,7 @@ def test_webhook_events_without_an_id_are_still_deduplicated(client):
 
 
 def test_webhook_dedupe_window_is_bounded_without_forgetting_recent_ids(client, monkeypatch):
-    monkeypatch.setattr(m, "DEDUPE_WINDOW", 3)
+    monkeypatch.setattr(runtime, "DEDUPE_WINDOW", 3)
     s = mk_site(client)
     add(client, s["site_id"], "W-001", "+99999910001")
     sub = client.get(f"/v1/sites/{s['site_id']}").json()["subscriptions"]["W-001"]
@@ -534,7 +535,7 @@ def test_planner_guard_demo_does_not_touch_process_state(client, monkeypatch):
     monkeypatch.setattr(m.os, "environ", env)
     method = LA.LLMPlanner.__dict__["_call_gemini"]
     seen = []
-    monkeypatch.setattr(m, "_sweep", lambda *a, **kw: (seen.append(LA.LLMPlanner.__dict__["_call_gemini"] is method),
+    monkeypatch.setattr(demo, "_sweep", lambda *a, **kw: (seen.append(LA.LLMPlanner.__dict__["_call_gemini"] is method),
                                                          _real_sweep(*a, **kw))[1])
     r = client.post("/v1/demo/planner-guard", json={})
     assert r.status_code == 200 and r.json()["simulated_model"] is True
@@ -542,4 +543,4 @@ def test_planner_guard_demo_does_not_touch_process_state(client, monkeypatch):
     assert env.writes == [] and seen and all(seen)
 
 
-_real_sweep = m._sweep
+_real_sweep = demo._sweep

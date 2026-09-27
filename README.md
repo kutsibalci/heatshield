@@ -106,7 +106,7 @@ WBGT number is our assumption, not their law.
 ## Architecture
 
 ```
-apps/api (FastAPI)          HTTP surface, webhook sink, the six demos, SafeFacade
+apps/api (FastAPI)          HTTP surface, access control, webhook sink, scheduler, the six demos
    └── packages/agent       sweep engine: SiteRuntime, WorkerRuntime, step() - the agent policy
         └── packages/rules  deterministic PURE functions, each returning explain[]
              └── packages/nac_client   the single Nokia / CAMARA entry point
@@ -184,7 +184,7 @@ statistic in this repository rests on live data. It is the first question we are
 
 **Two things the live platform taught us that no document did.** Sending two event types in one subscription returns
 **400** — CAMARA requires one event type per subscription — so the code now opens two subscriptions per worker, entry
-and exit (`apps/api/main.py`). And `maxAge` is **mandatory** on Location Retrieval; without it the platform returns
+and exit (`apps/api/runtime.py`). And `maxAge` is **mandatory** on Location Retrieval; without it the platform returns
 422. The freshness axis the cost ladder rides on is the platform's requirement, not our design preference.
 
 What is not in doubt: a working prototype runs today, offline, with 194 automated tests and six one-click demos.

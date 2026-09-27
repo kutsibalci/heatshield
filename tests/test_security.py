@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import api.main as m
+from api import security
 from nac_client.privacy import hash_phone
 
 API = {"Authorization": "Bearer test-api-token"}
@@ -16,8 +17,8 @@ HOOK = {"Authorization": "Bearer test-token"}
 def anon(monkeypatch):
     """Unauthenticated client. Demo mode is ON by default (conftest); tests turn it off when needed."""
     m.store.reset()
-    monkeypatch.setattr(m, "API_TOKEN", "test-api-token")
-    monkeypatch.setattr(m, "WEBHOOK_TOKEN", "test-token")
+    monkeypatch.setattr(security, "API_TOKEN", "test-api-token")
+    monkeypatch.setattr(security, "WEBHOOK_TOKEN", "test-token")
     m.DEMO_LIMITER.reset()
     return TestClient(m.app)
 
@@ -119,7 +120,9 @@ def test_no_public_default_secrets(monkeypatch):
     known = hmac.new(b"dev-salt-change-me", b"+99999910001", hashlib.sha256).hexdigest()
     assert hash_phone("+99999910001") != known
     assert hash_phone("+99999910001") == hash_phone("+99999910001")   # stable within the process
-    assert "heatshield-dev-token" not in open(m.__file__, encoding="utf-8").read()
+    from pathlib import Path
+    for source in Path(m.__file__).parent.glob("*.py"):
+        assert "heatshield-dev-token" not in source.read_text(encoding="utf-8"), source.name
 
 
 def test_live_mode_refuses_to_start_without_its_secrets():

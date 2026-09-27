@@ -6,7 +6,12 @@ in [docs/architecture.md](docs/architecture.md).
 ## Layout
 
 ```
-apps/api/main.py        FastAPI service: routes, Scheduler, webhook sink, six demo scenarios
+apps/api/main.py        the FastAPI app: lifespan, security headers, site/worker/sweep routes, webhook sink
+apps/api/security.py    tokens (HS_API_TOKEN, WEBHOOK_TOKEN), access dependencies, rate limiter
+apps/api/runtime.py     configuration, demo roster, operator client, store (locking rules), site/worker setup
+apps/api/models.py      request bodies, every field bounded
+apps/api/scheduler.py   the agent's own clock (sweep_due per site)
+apps/api/demo.py        the six one-click scenarios (HS_DEMO_MODE=1 only) and their report blocks
 apps/api/common.py      masking of secrets and phone numbers in every response, shared facade
 apps/web/               the console (index.html, base.js, base.css) — no build step, no CDN
 apps/simulator/         a local mock that serves the real CAMARA paths (NAC_MODE=simulator)
