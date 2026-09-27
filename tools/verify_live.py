@@ -528,7 +528,8 @@ def write_report(results: list[dict], meta: dict, cleaned: list[dict]) -> tuple[
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Nokia NaC canlı erişilebilirlik sondası")
-    ap.add_argument("--mode", default="live", choices=["live", "simulator", "fixture"])
+    ap.add_argument("--mode", required=True, choices=["live", "simulator", "fixture"],
+                    help="zorunlu: live gerçek anahtarla gerçek çağrı yapar ve kota harcar")
     ap.add_argument("--base", default=None, help="taban URL (varsayılan: moda göre)")
     ap.add_argument("--phone", default=None, help="sonda numarası (E.164)")
     ap.add_argument("--sink", default=None, help="abonelik webhook adresi (public HTTPS)")

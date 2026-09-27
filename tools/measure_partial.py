@@ -16,31 +16,23 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "heatshield" / "packages"))
-
+from _common import evidence_file, require_live_flag
+from _common import load_env as _load_env  # noqa: E402  (depo kökü + paket yolu)
 from nac_client import NacClient, NacConfig, NacError  # noqa: E402
 
 RADII = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000]
-OUT = Path(__file__).resolve().parent / f"partial-scan-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.json"
+OUT = evidence_file("partial-scan")
 
 
 def load_env() -> None:
-    env = ROOT / ".env"
-    if not env.exists():
-        print(".env yok — canlı mod icin gerekli.")
+    if _load_env() is None:
+        print(".env yok — canlı mod için gerekli.")
         sys.exit(1)
-    for line in env.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip())
 
 
 def main() -> None:
+    require_live_flag("Location Verification radius scan (PARTIAL rate) against the live Nokia sandbox.")
     load_env()
     phone = os.environ.get("NAC_PROBE_PHONE", "").strip()
     if not phone:

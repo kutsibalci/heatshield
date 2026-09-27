@@ -4,19 +4,17 @@ Guvenlik butcemiz 6 saniye: bir yeniden siralayici bundan uzun surerse terk edil
 calisir. Bu butcenin dogru olup olmadigini bilmek icin modelin gercekte ne kadar surdugunu ve
 ne siklikta cevap verdigini olcmek gerekir.
 """
-import json, os, statistics, sys, time
+import json
+import os
+import statistics
+import sys
+import time
 from datetime import datetime, timezone
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "packages")]
-for c in (ROOT / ".env", ROOT.parent / ".env"):
-    if c.exists():
-        for line in c.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1); os.environ.setdefault(k.strip(), v.strip())
-        break
+from _common import evidence_file, load_env, require_live_flag
+
+require_live_flag("Planner latency / success-rate measurement against Gemini / Groq.")
+load_env()
 os.environ["HS_PLANNER_TIMEOUT_S"] = "60"        # olcum icin genis; uretim butcesi ayri
 
 from agent.llm_adapter import get_planner          # noqa: E402
@@ -49,7 +47,7 @@ if good:
     for budget in (6, 10, 15, 20):
         within = sum(1 for m in good if m <= budget * 1000)
         print(f"  {budget:>2} sn butcede yetisen: {within}/{N}")
-out = ROOT / "evidence" / f"planner-reliability-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.json"
+out = evidence_file("planner-reliability")
 out.write_text(json.dumps({"at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                            "model": p.name, "calls": rows,
                            "success_rate": f"{len(good)}/{N}",

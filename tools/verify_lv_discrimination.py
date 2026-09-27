@@ -16,23 +16,18 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "heatshield" / "packages"))
-
+from _common import evidence_file, load_env, require_live_flag  # noqa: E402  (depo kökü + paket yolu)
 from nac_client import NacClient, NacConfig, NacError  # noqa: E402
 
-OUT = Path(__file__).resolve().parent / f"lv-discrimination-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.json"
+OUT = evidence_file("lv-discrimination")
 
 
 def main() -> None:
-    env = ROOT / ".env"
-    for line in env.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+    require_live_flag("Does Location Verification discriminate by area? Live Nokia sandbox.")
+    if load_env() is None:
+        print(".env yok — canlı mod için gerekli.")
+        sys.exit(1)
     os.environ["NAC_MODE"] = "live"
 
     c = NacClient(NacConfig.from_env())
