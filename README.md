@@ -55,7 +55,7 @@ HeatShield does not establish identity, it measures exposure, and calling those 
 
 ```bash
 python -m pip install -r requirements.txt
-python -m pytest -q                  # 149 tests
+python -m pytest -q                  # 180 tests
 ```
 
 Three modes, selected by `NAC_MODE`:
@@ -67,8 +67,11 @@ Three modes, selected by `NAC_MODE`:
 | `live` | Nokia Network as Code over RapidAPI | Requires your own key (see Configuration) |
 
 ```bash
-python -m uvicorn apps.api.main:app --port 8000    # fixture mode: no key, no second server — what the public demo runs
+HS_DEMO_MODE=1 python -m uvicorn apps.api.main:app --port 8000    # fixture mode: no key, no second server — what the public demo runs
 ```
+
+The six demo scenarios reset the store, so they only exist when `HS_DEMO_MODE=1` (set by `run.ps1`, `run.sh`, the
+Docker image and `render.yaml`). They are refused against the live operator.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\run.ps1 -Mode simulator   # Windows - mock on :8081, API on :8000
@@ -120,7 +123,7 @@ Detail: [`docs/architecture.md`](docs/architecture.md) · [`docs/api-availabilit
 [`docs/demo-script.md`](docs/demo-script.md)
 
 Tests: `tests/test_rules.py` · `tests/test_policy.py` · `tests/test_planner.py` · `tests/test_api.py` ·
-`tests/test_nac_client.py` — **149 total** (parametrised cases included), all offline.
+`tests/test_nac_client.py` · `tests/test_security.py` — **180 total** (parametrised cases included), all offline.
 
 ## Why this is not the GSMA catalogue use case
 
@@ -182,7 +185,7 @@ statistic in this repository rests on live data. It is the first question we are
 and exit (`apps/api/main.py`). And `maxAge` is **mandatory** on Location Retrieval; without it the platform returns
 422. The freshness axis the cost ladder rides on is the platform's requirement, not our design preference.
 
-What is not in doubt: a working prototype runs today, offline, with 149 automated tests and six one-click demos.
+What is not in doubt: a working prototype runs today, offline, with 180 automated tests and six one-click demos.
 Nothing in this repository is claimed as live that is not. Raw probe output (credentials and MSISDN masked) is in
 [`evidence/probe-20260909-124244.json`](evidence/probe-20260909-124244.json), the
 Location Verification radius scan in
@@ -282,9 +285,23 @@ cp .env.example .env      # then put YOUR OWN key in .env
 
 `.env` is listed in `.gitignore` and **must never be committed.** `.env.example` ships placeholders only. For `live`
 mode you need your own Nokia Network as Code account (https://networkascode.nokia.io — the free SIMULATOR plan is
-enough to reproduce the probe above) and your own RapidAPI key in `NAC_RAPIDAPI_KEY`. Also change `PHONE_HASH_SALT`
-and `WEBHOOK_TOKEN` from their placeholder values before any deployment. `fixture` and `simulator` modes need no
-credentials at all — the demos and the full test suite run with an empty `.env`.
+enough to reproduce the probe above) and your own RapidAPI key in `NAC_RAPIDAPI_KEY`. `fixture` and `simulator`
+modes need no credentials at all — the demos and the full test suite run with an empty `.env`.
+
+**Access.** The repository ships no default secrets.
+
+| Variable | What it protects |
+|---|---|
+| `HS_API_TOKEN` | Every write (sites, workers, WBGT, sweeps, reset) and every read that carries personal data (`/v1/state`, `/v1/sites…`, the ledger, `/v1/_debug/*`). Send it as `Authorization: Bearer …` |
+| `WEBHOOK_TOKEN` | The geofence sink only. It is handed to the operator as the subscription's `sinkCredential` |
+| `PHONE_HASH_SALT` | The HMAC key behind every phone-number hash |
+
+- **Unset secrets.** Left empty, each is generated per process. The API token is printed once at startup for local
+  use. With `NAC_MODE=live` the service **refuses to start** until all three are set.
+- **Always public.** The console's own endpoints (`/demo`, `/health`, `/v1/config`, `/v1/scheduler`,
+  `/v1/jurisdictions`) need no token.
+- **Demo mode.** With `HS_DEMO_MODE=1` the personal-data reads also stay open, because the data is the fictional
+  roster. The demo scenarios are rate-limited per visitor (`HS_DEMO_RATE_PER_MIN`, default 20).
 
 
 ## Status and what comes next
