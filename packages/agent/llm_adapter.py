@@ -211,7 +211,8 @@ class LLMPlanner:
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
         }
-        r = httpx.post(url, params={"key": self.api_key}, json=body, timeout=PLANNER_TIMEOUT_S)
+        # Anahtar BAŞLIKTA: URL sorgusundaki anahtar httpx/proxy loglarına ve hata mesajlarına düşer.
+        r = httpx.post(url, headers={"x-goog-api-key": self.api_key}, json=body, timeout=PLANNER_TIMEOUT_S)
         r.raise_for_status()
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
