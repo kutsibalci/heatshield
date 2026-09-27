@@ -18,23 +18,27 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import logging
 import math
 import os
+import secrets
 import sys
 import threading
+import time
 import uuid
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import Body, FastAPI, Header, HTTPException, Query
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, Field, field_validator
 
 from .common import ROOT, NacFacade, _mask_deep, build_nac, mount_common  # noqa: E402  (sys.path'i de ayarlar)
 from nac_client import NacError, mask_phone  # noqa: E402
@@ -46,7 +50,106 @@ from rules import Config, JURISDICTIONS  # noqa: E402
 log = logging.getLogger("heatshield.api")
 
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:8000")
-WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "heatshield-dev-token")
+
+
+def _secret(name: str) -> tuple[str, bool]:
+    """Ortamdaki sır; yoksa süreç başına rastgele bir değer. (değer, ortamdan mı geldi)"""
+    v = (os.environ.get(name) or "").strip()
+    return (v, True) if v else (secrets.token_urlsafe(32), False)
+
+
+# SIRLARIN DEPODA VARSAYILANI YOK. Eskiden sabit bir geliştirme token'ı yazılıydı: depoyu okuyan herkes
+# webhook'a sahte giriş/çıkış olayı gönderebilir ve kanıt defterini silebilirdi.
+#   HS_API_TOKEN   yönetici: saha/işçi/WBGT/tarama/sıfırlama ve kişisel veri okuma
+#   WEBHOOK_TOKEN  yalnızca operatörün geofence bildirimleri (aboneliğe sinkCredential olarak verilir)
+API_TOKEN, _API_TOKEN_FROM_ENV = _secret("HS_API_TOKEN")
+WEBHOOK_TOKEN, _ = _secret("WEBHOOK_TOKEN")
+PRODUCTION_SECRETS = ("HS_API_TOKEN", "WEBHOOK_TOKEN", "PHONE_HASH_SALT")
+
+
+def missing_production_secrets(mode: str, environ) -> list[str]:
+    """Canlı operatöre bağlanan bir kopya rastgele sırla AÇILMAZ: yeniden başlatmada hash'ler ve
+    abonelik anahtarı değişir, kanıt defterinin eşleşmesi kopar."""
+    if mode != "live":
+        return []
+    return [k for k in PRODUCTION_SECRETS if not (environ.get(k) or "").strip()]
+
+
+def _bearer_ok(authorization: str | None, token: str) -> bool:
+    if not token or not authorization or not authorization.startswith("Bearer "):
+        return False
+    return hmac.compare_digest(authorization[7:].encode(), token.encode())   # sabit zamanlı
+
+
+def _demo_mode() -> bool:
+    return (os.environ.get("HS_DEMO_MODE") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def require_api_token(authorization: Optional[str] = Header(None)) -> None:
+    if not _bearer_ok(authorization, API_TOKEN):
+        raise HTTPException(401, {"code": "UNAUTHENTICATED",
+                                  "message": "this endpoint needs the API token: Authorization: Bearer <HS_API_TOKEN>"})
+
+
+def require_read_access(authorization: Optional[str] = Header(None)) -> None:
+    """Kişisel veri (ad, ekip, uyruk, kanıt defteri) token ister. Demo modunda veri kurgusaldır ve açık kalır."""
+    if not _demo_mode():
+        require_api_token(authorization)
+
+
+class RateLimiter:
+    """İstemci (IP) başına pencere içinde en fazla `limit` istek; bellek `max_clients` ile sınırlı.
+
+    `limit` None ise her istekte `HS_DEMO_RATE_PER_MIN` okunur (varsayılan 20, 0 = sınırsız).
+    Bir proxy arkasında gerçek IP için uvicorn'a `FORWARDED_ALLOW_IPS` verilmelidir (render.yaml).
+    """
+
+    def __init__(self, window_s: float = 60.0, max_clients: int = 10_000) -> None:
+        self.limit: int | None = None
+        self.window_s, self.max_clients = window_s, max_clients
+        self._lock = threading.Lock()
+        self.reset()
+
+    def reset(self) -> None:
+        self._hits: OrderedDict[str, deque] = OrderedDict()
+
+    def hit(self, key: str) -> int:
+        """İzin varsa 0, yoksa kaç saniye sonra tekrar denenebileceği."""
+        limit = self.limit if self.limit is not None else int(os.environ.get("HS_DEMO_RATE_PER_MIN") or 20)
+        if limit <= 0:
+            return 0
+        now = time.monotonic()
+        with self._lock:
+            q = self._hits.pop(key, None) or deque()
+            while q and now - q[0] >= self.window_s:
+                q.popleft()
+            self._hits[key] = q
+            if len(q) >= limit:
+                return max(1, int(self.window_s - (now - q[0])) + 1)
+            q.append(now)
+            while len(self._hits) > self.max_clients:
+                self._hits.popitem(last=False)
+            return 0
+
+
+DEMO_LIMITER = RateLimiter()
+
+
+def require_demo_mode(request: Request) -> None:
+    """Demo senaryoları mağazayı SIFIRLAR ve paylaşılan istemciye hata enjekte eder. Bu yüzden
+    yalnızca açıkça demo için açılmış, canlı operatöre bağlı olmayan bir kopyada çalışırlar."""
+    if not _demo_mode():
+        raise HTTPException(404, {"code": "NOT_FOUND",
+                                  "message": "demo scenarios are off; set HS_DEMO_MODE=1 on a fixture or simulator instance"})
+    if getattr(nac.cfg, "mode", "fixture") == "live":
+        raise HTTPException(409, {"code": "DEMO_NOT_ALLOWED_LIVE",
+                                  "message": "demo scenarios reset the store and inject faults; they never run against the live operator"})
+    retry = DEMO_LIMITER.hit(request.client.host if request.client else "unknown")
+    if retry:
+        raise HTTPException(429, {"code": "RATE_LIMITED", "message": f"too many demo runs; try again in {retry} s"},
+                            headers={"Retry-After": str(retry)})
+
+
 # Anonim olusturma tavanlari: herkese acik kopya 512 MB; isci basina ~5,3 KB olculdu (denetim D).
 # Demo senaryolari bu tavana tabi degil — kendi sahalarini sifirdan kurup magazayi temizliyorlar.
 MAX_SITES = int(os.environ.get("HS_MAX_SITES") or 50)
@@ -90,6 +193,13 @@ async def lifespan(_app: FastAPI):
     `on_event("startup")` yerine `lifespan`: kapanışta görevi iptal etmenin garantili tek yeri
     burasıdır (on_event'te shutdown'da asılı kalan bir görev kalıyordu).
     """
+    mode = getattr(nac.cfg, "mode", "fixture")
+    missing = missing_production_secrets(mode, os.environ)
+    if missing:
+        raise RuntimeError(f"NAC_MODE=live needs {', '.join(missing)} — refusing to start with generated secrets")
+    if not _API_TOKEN_FROM_ENV:
+        # Yerel geliştirme kolaylığı: token üretildi ve bir kez yazılır. Canlı modda buraya gelinmez.
+        log.warning("HS_API_TOKEN is not set; writes need this process-only token: %s", API_TOKEN)
     scheduler.start()
     try:
         yield
@@ -98,8 +208,32 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="HeatShield — Heat-Stroke Protection on Construction Sites", version="0.1", lifespan=lifespan)
+
+# Konsol dış kaynak kullanmaz; satır içi betik/stil var (derleme adımı yok). CORS başlığı verilmez:
+# tarayıcılar başka kökenden okumayı engeller. /docs ve /redoc Swagger'ı CDN'den yüklediği için CSP dışında.
+CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+       "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(_request: Request, exc: RequestValidationError):
+    """422 yanıtı gönderilen değeri GERİ YANSITMAZ: (1) NaN/sonsuz JSON'a yazılamıyor ve yanıt 500'e
+    dönüyordu, (2) hatalı bir işçi kaydının adı/numarası yanıtta ve loglarda dolaşmasın."""
+    errors = [{k: v for k, v in e.items() if k in ("type", "loc", "msg")} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    if request.url.path not in ("/docs", "/redoc"):
+        response.headers.setdefault("Content-Security-Policy", CSP)
+    return response
 nac = build_nac()
-mount_common(app, nac, Path(__file__).resolve().parents[1] / "web")
+mount_common(app, nac, Path(__file__).resolve().parents[1] / "web", debug_dependencies=[Depends(require_read_access)])
 
 
 # ============================================================================ güvenli facade
@@ -337,28 +471,29 @@ class SiteIn(BaseModel):
     # Varsayılanlar demo sahasıyla aynı yerdir: gerçek Lusail Marina District koordinatları
     # (kaynaklar fixtures/roster.json `_sources`). Yarıçap 500 m KALIR — ölçülen 1000 m konum
     # belirsizliğinin karşısındaki çeper bu ve bütün iddialarımız o orana dayanıyor.
-    name: str = ROSTER["site"]["name"]
+    name: str = Field(default=ROSTER["site"]["name"], max_length=120)
     # Varsayilan, dagitimin yargi alanidir (HS_JURISDICTION) — sabit "QA" degil.
     jurisdiction: str = Field(default_factory=lambda: CFG.jurisdiction.code, pattern="^(QA|SA|AE|qa|sa|ae)$")
-    lat: float = ROSTER["site"]["lat"]
-    lng: float = ROSTER["site"]["lng"]
-    radius_m: float = ROSTER["site"]["radius_m"]
+    lat: float = Field(default=ROSTER["site"]["lat"], ge=-90, le=90)
+    lng: float = Field(default=ROSTER["site"]["lng"], ge=-180, le=180)
+    radius_m: float = Field(default=ROSTER["site"]["radius_m"], gt=0, le=50_000)
 
 
 class WorkerIn(BaseModel):
-    worker_id: str
-    phone: str
-    name: str = ""
-    micro_zone: str = "z1"
+    # Uzunluk sınırları: sınırsız metin alanları belleği ve kanıt defterini şişirebiliyordu.
+    worker_id: str = Field(min_length=1, max_length=64)
+    phone: str = Field(max_length=32)
+    name: str = Field(default="", max_length=120)
+    micro_zone: str = Field(default="z1", max_length=32)
     # İşveren kayıt alanları — karara girmez, ekranda/defterde kimi konuştuğumuzu gösterir.
     # (Uyruk ve meslek SKORLAMADA kullanılmaz; bkz. agent/policy.py WorkerRuntime.)
-    zone_label: str = ""
-    nationality: str = ""
-    trade: str = ""
-    crew: str = ""
-    first_day_on_site: str | None = None
+    zone_label: str = Field(default="", max_length=64)
+    nationality: str = Field(default="", max_length=64)
+    trade: str = Field(default="", max_length=64)
+    crew: str = Field(default="", max_length=64)
+    first_day_on_site: str | None = Field(default=None, max_length=32)
     prior_incident: bool = False
-    shift: str = "day"
+    shift: str = Field(default="day", max_length=16)
     badge_in: bool = True
     device_history: dict = Field(default_factory=dict)
     moving_out: bool = False
@@ -367,15 +502,25 @@ class WorkerIn(BaseModel):
     reachable_via_operator: bool = True
     subscribe: bool = True
 
+    @field_validator("device_history")
+    @classmethod
+    def _small_history(cls, v: dict) -> dict:
+        if len(json.dumps(v, default=str)) > 2_000:
+            raise ValueError("device_history is limited to 2,000 characters")
+        return v
+
+
+WBGT_RANGE = {"ge": -20.0, "le": 60.0, "allow_inf_nan": False}   # WBGT, kuru termometre sıcaklığını aşamaz
+
 
 class SweepIn(BaseModel):
     now: datetime | None = None
-    wbgt_c: float | None = None
+    wbgt_c: float | None = Field(default=None, **WBGT_RANGE)
     force: bool = True   # False → tarama sıklığı (sweep_due) dikkate alınır
 
 
 class WbgtIn(BaseModel):
-    wbgt_c: float
+    wbgt_c: float = Field(**WBGT_RANGE)
     now: datetime | None = None
 
 
@@ -433,7 +578,7 @@ def _add_worker(site: SiteRuntime, body: WorkerIn) -> WorkerRuntime:
 
 
 # ============================================================================ uçlar
-@app.post("/v1/sites", status_code=201)
+@app.post("/v1/sites", status_code=201, dependencies=[Depends(require_api_token)])
 def create_site(body: SiteIn):
     with store.lock:
         if len(store.sites) >= MAX_SITES:
@@ -442,17 +587,17 @@ def create_site(body: SiteIn):
         return _create_site(body).to_dict()
 
 
-@app.get("/v1/sites")
+@app.get("/v1/sites", dependencies=[Depends(require_read_access)])
 def list_sites():
     return [s.to_dict() for s in store.sites.values()]
 
 
-@app.get("/v1/sites/{site_id}")
+@app.get("/v1/sites/{site_id}", dependencies=[Depends(require_read_access)])
 def get_site(site_id: str):
     return store.site_or_404(site_id).to_dict()
 
 
-@app.post("/v1/sites/{site_id}/workers", status_code=201)
+@app.post("/v1/sites/{site_id}/workers", status_code=201, dependencies=[Depends(require_api_token)])
 def add_worker(site_id: str, body: WorkerIn):
     site = store.site_or_404(site_id)
     with site.lock:
@@ -468,7 +613,7 @@ def add_worker(site_id: str, body: WorkerIn):
             raise HTTPException(400, {"code": "INVALID_ARGUMENT", "message": str(e)})
 
 
-@app.post("/v1/sites/{site_id}/wbgt")
+@app.post("/v1/sites/{site_id}/wbgt", dependencies=[Depends(require_api_token)])
 def set_wbgt(site_id: str, body: WbgtIn):
     """Meteoroloji beslemesi (WBGT). Ölçüm defterlenir; karar taramada verilir."""
     site = store.site_or_404(site_id)
@@ -482,7 +627,7 @@ def set_wbgt(site_id: str, body: WbgtIn):
         return {"site_id": site.site_id, "wbgt_c": site.wbgt_c, "limit_c": site.cfg.jurisdiction.wbgt_limit_c}
 
 
-@app.post("/v1/sites/{site_id}/sweep")
+@app.post("/v1/sites/{site_id}/sweep", dependencies=[Depends(require_api_token)])
 def sweep(site_id: str, body: SweepIn | None = None):
     """Bir tarama çalıştırır ve tam raporu döner (plan, çağrılar, kararlar, bütçe, deftere eklenenler)."""
     body = body or SweepIn()
@@ -494,7 +639,7 @@ def sweep(site_id: str, body: SweepIn | None = None):
         return _stamp_trigger(step(site, at, facade, site.cfg, body.wbgt_c), site, at, "api")
 
 
-@app.get("/v1/sites/{site_id}/ledger")
+@app.get("/v1/sites/{site_id}/ledger", dependencies=[Depends(require_read_access)])
 def ledger(site_id: str, worker_id: str | None = None, event: str | None = None, limit: int = Query(200, le=1000)):
     """Kanıt defteri — denetçi/sigortacı için zaman damgalı, işçi bazlı uyum kaydı."""
     site = store.site_or_404(site_id)
@@ -508,14 +653,14 @@ def jurisdictions():
     return {code: j.to_dict() for code, j in JURISDICTIONS.items()}
 
 
-@app.get("/v1/state")
+@app.get("/v1/state", dependencies=[Depends(require_read_access)])
 def state():
     return {
         "now": _iso(_now()), "config": CFG.to_dict(),
         "sites": [s.to_dict() for s in store.sites.values()],
         "subscriptions": [{"id": sid, "site_id": s, "worker_id": w} for sid, (s, w) in store.subs.items()],
         "degraded": list(store.degraded[-10:]),
-        "webhook": {"sink": f"{PUBLIC_BASE_URL.rstrip('/')}/webhooks/geofence", "token_required": bool(WEBHOOK_TOKEN)},
+        "webhook": {"sink": f"{PUBLIC_BASE_URL.rstrip('/')}/webhooks/geofence", "token_required": True},
         "scheduler": scheduler.to_dict(),   # ajanın kendi saati: açık mı, son tur ne zaman döndü
         # ESKIDEN BURADA SABIT 0 VARDI ve "surekli konum gecmisi tutulmaz" diyordu — YANLISTI.
         # Defter isci bazinda zaman damgali bir varlik kaydidir; bunu gizlemek yerine SAYIYORUZ.
@@ -534,17 +679,12 @@ def config():
     return CFG.to_dict()
 
 
-@app.post("/v1/reset")
-def reset(authorization: Optional[str] = Header(None)):
-    """Tum kanit defterlerini siler — bu yuzden korumali.
+@app.post("/v1/reset", dependencies=[Depends(require_api_token)])
+def reset():
+    """Tüm kanıt defterlerini siler — bu yüzden yönetici token'ı ister (webhook anahtarı yetmez).
 
-    Uyum kaydi urunun kendisiyse, onu herkesin silebilmesi bir butunluk acigidir.
-    `WEBHOOK_TOKEN` tanimliyken Bearer zorunlu; tanimli degilse (yerel gelistirme) serbest.
+    Uyum kaydı ürünün kendisiyse, onu herkesin silebilmesi bir bütünlük açığıdır.
     """
-    if WEBHOOK_TOKEN and (not authorization or not authorization.startswith("Bearer ")
-                          or authorization[7:] != WEBHOOK_TOKEN):
-        raise HTTPException(401, {"code": "UNAUTHENTICATED",
-                                  "message": "resetting the evidence ledger requires a bearer token"})
     with store.lock:
         store.reset()
     return {"ok": True}
@@ -554,7 +694,7 @@ def reset(authorization: Optional[str] = Header(None)):
 @app.post("/webhooks/geofence")
 def webhook_geofence(ev: dict = Body(...), authorization: Optional[str] = Header(default=None)):
     """Geofencing aboneliğinin sink'i. Şebeke iter → sorgu bütçesi harcanmaz (§8 Move 1)."""
-    if WEBHOOK_TOKEN and (not authorization or not authorization.startswith("Bearer ") or authorization[7:] != WEBHOOK_TOKEN):
+    if not _bearer_ok(authorization, WEBHOOK_TOKEN):
         raise HTTPException(401, {"code": "UNAUTHENTICATED", "message": "invalid webhook token"})
     if not isinstance(ev, dict) or "type" not in ev:
         raise HTTPException(400, {"code": "INVALID_ARGUMENT", "message": "a CloudEvent is expected"})
@@ -706,7 +846,7 @@ def _sweep(site: SiteRuntime, at: datetime, wbgt: float | None, label: str) -> d
     return r
 
 
-@app.post("/v1/demo/heat-day")
+@app.post("/v1/demo/heat-day", dependencies=[Depends(require_demo_mode)])
 def demo_heat_day(body: DemoIn | None = None):
     """Bir sıcak günün tamamı: sessiz izleme → yasal ihlal → bütçeli tarama → bayılma → QoD → ihlalin bitişi."""
     with store.lock:
@@ -728,7 +868,7 @@ def demo_heat_day(body: DemoIn | None = None):
                          extra={"ban_hour_rotation": rotation})
 
 
-@app.post("/v1/demo/collapse")
+@app.post("/v1/demo/collapse", dependencies=[Depends(require_demo_mode)])
 def demo_collapse(body: DemoIn | None = None):
     """Bayılma mı, bitmiş pil mi? Beş sessiz cihaz, dört hüküm — biri bayat okumaymış.
 
@@ -754,7 +894,7 @@ def demo_collapse(body: DemoIn | None = None):
                          extra={"verdict_matrix": list(verdicts.values()), "ban_hour_rotation": rotation})
 
 
-@app.post("/v1/demo/no-breach")
+@app.post("/v1/demo/no-breach", dependencies=[Depends(require_demo_mode)])
 def demo_no_breach(body: DemoIn | None = None):
     """Move 1 — eşik altında sorgu yetkisi yok: sıfır çağrı, sıfır maliyet, sıfır gözetim."""
     with store.lock:
@@ -768,7 +908,7 @@ def demo_no_breach(body: DemoIn | None = None):
                          "Two sweeps, zero network queries. Outside a legal breach the system has no authority to query.")
 
 
-@app.post("/v1/demo/api-down")
+@app.post("/v1/demo/api-down", dependencies=[Depends(require_demo_mode)])
 def demo_api_down(body: DemoIn | None = None):
     """Nokia API çöktüğünde: hiç kimse sessizce 'güvende' işaretlenmez — sinyal 'bilinmiyor' kalır."""
     with store.lock:
@@ -783,7 +923,7 @@ def demo_api_down(body: DemoIn | None = None):
                          extra={"unknown_workers": [w.worker_id for w in unknown], "breaker": nac.health()["breaker"]})
 
 
-@app.post("/v1/demo/planner-guard")
+@app.post("/v1/demo/planner-guard", dependencies=[Depends(require_demo_mode)])
 def demo_planner_guard(body: DemoIn | None = None):
     """Model kuralların ALTINDA: sırayı tartışabilir, planı genişletemez.
 
@@ -836,7 +976,7 @@ def demo_planner_guard(body: DemoIn | None = None):
                                              "order_held": rejected.get("order_before") == rejected.get("order_after")}})
 
 
-@app.post("/v1/demo/jurisdiction")
+@app.post("/v1/demo/jurisdiction", dependencies=[Depends(require_demo_mode)])
 def demo_jurisdiction(body: DemoIn | None = None):
     """Aynı an, üç yargı alanı: Katar / Suudi Arabistan / BAE. Yargı alanı bir config kaydıdır."""
     with store.lock:
