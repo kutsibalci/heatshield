@@ -544,3 +544,13 @@ def test_planner_guard_demo_does_not_touch_process_state(client, monkeypatch):
 
 
 _real_sweep = demo._sweep
+
+
+def test_a_geofence_event_with_an_empty_time_is_applied_now_not_a_500(client):
+    s = mk_site(client)
+    add(client, s["site_id"], "W-001", "+99999910001")
+    sub = client.get(f"/v1/sites/{s['site_id']}").json()["subscriptions"]["W-001"]
+    body = ce(sub, GEO_LEFT, "+99999910001", ce_id="empty-time")
+    body["time"] = ""
+    r = client.post("/webhooks/geofence", json=body, headers=AUTH)
+    assert r.status_code == 200 and r.json()["kind"] == "exit"

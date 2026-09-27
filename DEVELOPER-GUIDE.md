@@ -21,7 +21,7 @@ packages/agent/         SiteRuntime / WorkerRuntime state machine, sweep executi
 packages/nac_client/    the single entry point to Nokia Network as Code: auth, retry, circuit breaker, masking,
                         fixture / simulator / live backends
 fixtures/profiles.json  device profiles the fixture backend answers from (all numbers +99999…, none real)
-tests/                  194 tests, offline by construction (conftest.py strips every key from the environment)
+tests/                  197 tests, offline by construction (conftest.py strips every key from the environment)
 tools/                  live probes and measurements (need an explicit --live); output lands unaltered in evidence/
 evidence/               machine-generated proof for every "verified live" claim
 ```
@@ -43,7 +43,7 @@ evidence/               machine-generated proof for every "verified live" claim
 
 ```bash
 python -m pip install -r requirements-dev.txt
-python -m pytest -q                                   # 194 tests, ~75 s, no network
+python -m pytest -q                                   # 197 tests, ~75 s, no network
 python -m ruff check .                                # correctness lint, the same check CI runs
 HS_DEMO_MODE=1 python -m uvicorn apps.api.main:app --port 8000   # fixture mode → http://127.0.0.1:8000/demo
 NAC_MODE=simulator ./run.sh simulator                 # mock operator on :8081 with the real CAMARA paths

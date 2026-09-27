@@ -16,32 +16,18 @@ from __future__ import annotations
 import math
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .config import Config, Jurisdiction
 from .explain import Decision, Explain
+from .timeutil import iso_z, to_utc as _dt
 
 VERDICTS = ("probable_collapse", "probable_network", "probable_battery", "probable_left", "prolonged_exposure")
 STATES = ("passive_watch", "alert", "confirming", "distress", "emergency")
 
 
 # ----------------------------------------------------------------------------- helpers
-def _dt(v: Any) -> datetime | None:
-    if v is None or v == "":
-        return None
-    if isinstance(v, datetime):
-        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
-    if isinstance(v, date):
-        return datetime(v.year, v.month, v.day, tzinfo=timezone.utc)
-    dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
-def _iso_or_none(dt: datetime | None) -> str | None:
-    """A readable timestamp for the evidence ledger/explain (UTC, with a Z suffix)."""
-    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if dt else None
-
 
 def _minutes_between(a: datetime | None, b: datetime | None) -> float | None:
     if a is None or b is None:
@@ -218,7 +204,7 @@ def exposure_detail(worker: dict, breach_started_at: datetime | Any, now: dateti
         Explain("exposure_minutes", round(exposure_min, 1), 1.0,
                 f"This worker's own exposure is {exposure_min:.0f} min (no clearing signal) — {why}",
                 source="rules", triggered=exposure_min >= 20),
-        Explain("exposure_start", _iso_or_none(start), 0.8, f"Exposure clock starts at: {src}", source="rules",
+        Explain("exposure_start", iso_z(start), 0.8, f"Exposure clock starts at: {src}", source="rules",
                 triggered=src != "breach_started_at"),
         Explain("staleness", round(staleness, 2), 1.0, f"Last trustworthy signal {stale_min:.0f} min ago" if last else "No trustworthy signal at all", source="rules", triggered=stale_min >= 20),
         *([Explain("presence_prior", prior, 0.9,
@@ -229,7 +215,7 @@ def exposure_detail(worker: dict, breach_started_at: datetime | Any, now: dateti
     ]
     return Decision(decision="exposure_score", risk_score=score, rule="severity×exposure×staleness×vulnerability", explain=ex,
                     meta={"score": round(score, 2), "vulnerability": vul, "staleness_minutes": round(stale_min, 1),
-                          "exposure_minutes": round(exposure_min, 1), "exposure_start": _iso_or_none(start),
+                          "exposure_minutes": round(exposure_min, 1), "exposure_start": iso_z(start),
                           "effective_exposure_minutes": round(effective_exposure, 1), "presence_prior": prior,
                           "exposure_source": src})
 

@@ -21,29 +21,16 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from nac_client.privacy import hash_phone, mask_phone, normalize_phone
 from rules import Config
 from rules import heatshield as R
+from rules.timeutil import iso_z as _iso, to_utc as _dt
 from rules.heatshield import STATES  # passive_watch | alert | confirming | distress | emergency
 
 __all__ = ["SiteRuntime", "WorkerRuntime", "step", "apply_geofence_event", "sweep_due", "STATES"]
-
-
-# --------------------------------------------------------------------------- helpers
-def _iso(dt: datetime | None) -> str | None:
-    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if dt else None
-
-
-def _dt(v: Any) -> datetime | None:
-    if v is None or v == "":
-        return None
-    if isinstance(v, datetime):
-        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
-    d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
-    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
 # --------------------------------------------------------------------------- worker

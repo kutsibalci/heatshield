@@ -20,6 +20,7 @@ from nac_client import NacError
 from nac_client.client import NacResult
 from agent import SiteRuntime, WorkerRuntime, new_worker
 from rules import Config
+from rules.timeutil import iso_z as _iso, to_utc as _parse_dt  # noqa: F401  (re-exported to routes)
 
 if TYPE_CHECKING:
     from .models import SiteIn, WorkerIn
@@ -89,15 +90,6 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _parse_dt(v) -> datetime | None:
-    if v is None:
-        return None
-    dt = v if isinstance(v, datetime) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
-def _iso(dt: datetime | None) -> str | None:
-    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if dt else None
 
 
 # ============================================================================ store

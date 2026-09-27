@@ -236,3 +236,15 @@ def test_medic_coordinate_is_not_starved_by_unseen_workers():
     plan = R.plan_verification(unseen + [escalated], 20, CFG, NOON, breach_started_at=breach)
     assert plan[0].api == "location_retrieve" and plan[0].worker["worker_id"] == "W-999"
     assert len([a for a in plan if a.pool == "main"]) == 18          # the budget is still not exceeded
+
+
+# ------------------------------------------------------------------ timeutil
+def test_one_timestamp_parser_for_the_whole_codebase():
+    from datetime import date
+    from rules.timeutil import iso_z, to_utc
+    assert to_utc(None) is None and to_utc("") is None
+    assert to_utc("2026-08-17T09:00:00Z") == NOON
+    assert to_utc("2026-08-17T12:00:00+03:00") == NOON
+    assert to_utc(datetime(2026, 8, 17, 9, 0)) == NOON                  # naive → UTC
+    assert to_utc(date(2026, 8, 17)) == datetime(2026, 8, 17, tzinfo=UTC)
+    assert iso_z(NOON) == "2026-08-17T09:00:00Z" and iso_z(None) is None
