@@ -16,7 +16,6 @@ import os
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
-from typing import Any
 
 import httpx
 from fastapi import Body, FastAPI, HTTPException, Request

@@ -129,7 +129,7 @@ def guard_plan(candidates: list[Any], proposed_ids: list[str]) -> tuple[list[Any
         # Plan kimlikleri belirsizse modele hiç güvenmeyiz (fail-closed).
         return None, {"accepted": False, "violation": "ambiguous_plan",
                       "detail": "the plan has duplicate or empty action ids - the model was not trusted with it"}
-    by_id = dict(zip(ids, candidates))
+    by_id = dict(zip(ids, candidates, strict=True))
 
     if not isinstance(proposed_ids, list) or not proposed_ids:
         return None, {"accepted": False, "violation": "empty_order", "detail": "the model returned an empty or malformed order"}

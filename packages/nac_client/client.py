@@ -143,10 +143,10 @@ class NacClient:
             headers["x-correlator"] = corr
             try:
                 r = self.http.request(method, path, json=json, headers=headers)
-            except httpx.TimeoutException:
-                raise NacTimeout(api, self.cfg.timeout_s)
+            except httpx.TimeoutException as e:
+                raise NacTimeout(api, self.cfg.timeout_s) from e
             except httpx.HTTPError as e:
-                raise NacError("network", api, str(e), retryable=True)
+                raise NacError("network", api, str(e), retryable=True) from e
             if r.status_code >= 400:
                 raise error_from_status(api, r.status_code, r.text)
             if r.status_code == 204 or not r.content:
