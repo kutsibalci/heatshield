@@ -1,13 +1,13 @@
-"""Yerel Nokia NaC simülatörü.
+"""Local Nokia NaC simulator.
 
-Gerçek path'leri (docs/nac-api-reference.md) aynı gövde/yanıt şemasıyla sunar; veriyi FixtureBackend üretir.
-NAC_MODE=simulator iken NacClient buraya (http://127.0.0.1:8081) bağlanır → HTTP katmanı uçtan uca test edilir.
+Serves the real paths (docs/nac-api-reference.md) with the same body/response schema; FixtureBackend produces the data.
+With NAC_MODE=simulator, NacClient connects here (http://127.0.0.1:8081) → the HTTP layer is tested end to end.
 
-Ek kontrol uçları (gerçek API'de YOK, sadece demo):
-  GET  /_sim/profiles                 tüm profiller
-  PUT  /_sim/profiles/{phone}         profil yaz/güncelle (patch)
-  POST /_sim/emit                     {subscription_id | phone, type, extra} → sink'e CloudEvent POST'lar
-  POST /_sim/reset                    fixture dosyasını yeniden yükle
+Extra control endpoints (NOT in the real API, demo only):
+  GET  /_sim/profiles                 all profiles
+  PUT  /_sim/profiles/{phone}         write/update a profile (patch)
+  POST /_sim/emit                     {subscription_id | phone, type, extra} → POSTs a CloudEvent to the sink
+  POST /_sim/reset                    reload the fixture file
 """
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def _phone(body: dict) -> str:
 
 
 def _require_bearer(request: Request):
-    # Passthrough API'ler canlıda Bearer ister; simülatörde sadece uyarı üretiriz (SIM_STRICT_AUTH=1 ile zorunlu).
+    # Passthrough APIs require Bearer in live; the simulator only warns (mandatory with SIM_STRICT_AUTH=1).
     if os.environ.get("SIM_STRICT_AUTH") == "1" and not request.headers.get("authorization", "").startswith("Bearer "):
         raise HTTPException(401, {"code": "UNAUTHENTICATED", "message": "Bearer token gerekli"})
 
@@ -168,7 +168,7 @@ def congestion_query(body: dict = Body(...)):
     return fx.congestion_query(_phone(body), body.get("start"), body.get("end"))
 
 
-# ---- abonelikler -------------------------------------------------------------
+# ---- subscriptions -----------------------------------------------------------
 def _sub_routes(prefix: str, kind: str):
     @app.post(prefix, name=f"create_{kind}")
     def create(body: dict = Body(...)):
@@ -213,7 +213,7 @@ def qod_list(body: dict = Body(...)):
     return fx.qod_list(_phone(body))
 
 
-# ---- simülatör kontrol uçları (gerçek API'de yok) ------------------------------
+# ---- simulator control endpoints (not in the real API) -------------------------
 @app.get("/_sim/profiles")
 def sim_profiles():
     return fx.profiles
@@ -243,15 +243,15 @@ def _is_local(url: str) -> bool:
 
 @app.post("/_sim/emit")
 def sim_emit(body: dict = Body(...)):
-    """Bir aboneliğin sink'ine CloudEvent gönderir. body: {subscription_id?, phone?, type, extra?}"""
+    """Sends a CloudEvent to a subscription's sink. body: {subscription_id?, phone?, type, extra?}"""
     sid = body.get("subscription_id")
     subs = [fx.subscriptions[sid]] if sid and sid in fx.subscriptions else [
         s for s in fx.subscriptions.values() if (s.get("config") or {}).get("subscriptionDetail", {}).get("device", {}).get("phoneNumber") == body.get("phone")
     ]
     if not subs:
         raise HTTPException(404, "abonelik bulunamadı")
-    # SSRF: sink'i aboneliği açan herkes belirleyebiliyor; simülatör onu körü körüne POST'luyordu
-    # (ör. bulut meta veri adresi). Varsayılan: yalnızca yerel sink. SIM_ALLOW_REMOTE_SINKS=1 ile açılır.
+    # SSRF: anyone opening a subscription can choose the sink; the simulator used to POST to it blindly
+    # (e.g. a cloud metadata address). Default: local sinks only. Enabled with SIM_ALLOW_REMOTE_SINKS=1.
     if os.environ.get("SIM_ALLOW_REMOTE_SINKS") != "1":
         remote = [s["sink"] for s in subs if not _is_local(s.get("sink") or "")]
         if remote:
@@ -261,7 +261,7 @@ def sim_emit(body: dict = Body(...)):
         phone = (s.get("config") or {}).get("subscriptionDetail", {}).get("device", {}).get("phoneNumber")
         ev = fx.cloud_event(body["type"], s["id"], phone, body.get("extra"))
         headers = {"content-type": "application/cloudevents+json"}
-        if s.get("_sink_token"):                 # CAMARA: sinkCredential Bearer olarak geri gönderilir
+        if s.get("_sink_token"):                 # CAMARA: sinkCredential is sent back as Bearer
             headers["authorization"] = f"Bearer {s['_sink_token']}"
         try:
             r = httpx.post(s["sink"], json=ev, headers=headers, timeout=5)

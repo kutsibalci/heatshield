@@ -1,7 +1,7 @@
-"""HeatShield eşik ve bütçe yapılandırması — hard-code yok, hepsi burada (+ env override).
+"""HeatShield threshold and budget configuration — nothing hard-coded, it is all here (+ env override).
 
-Yargı alanı (Jurisdiction) tak-çıkar: Katar referans; Suudi Arabistan ve BAE konfigürasyon kaydı.
-Kaynak: idea capture §6 (bölgesel ölçeklenebilirlik) ve §8 (doğrulama bütçesi politikası).
+Jurisdiction is plug-and-play: Qatar is the reference; Saudi Arabia and the UAE are configuration entries.
+Source: idea capture §6 (regional scalability) and §8 (verification budget policy).
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, asdict, replace
 
 @dataclass(frozen=True)
 class SummerBan:
-    """Yaz yasağı: start/end "AA-GG", from_/to "SS:DD" (yerel saat)."""
+    """Summer ban: start/end "MM-DD", from_/to "HH:MM" (local time)."""
 
     start: str = "06-01"
     end: str = "09-15"
@@ -28,7 +28,7 @@ class Jurisdiction:
     code: str
     wbgt_limit_c: float = 32.1
     summer_ban: SummerBan = field(default_factory=SummerBan)
-    tz_offset_hours: float = 3.0  # yerel saat için (naive datetime → yerel kabul edilir)
+    tz_offset_hours: float = 3.0  # for local time (a naive datetime → assumed to be local)
     legal_ref: str = ""
 
     def to_dict(self) -> dict:
@@ -58,35 +58,36 @@ JURISDICTIONS: dict[str, Jurisdiction] = {"QA": QATAR, "SA": SAUDI, "AE": UAE}
 
 @dataclass(frozen=True)
 class BudgetConfig:
-    """Site başına dakikalık sorgu bütçesi (idea capture §8)."""
+    """Per-site query budget per minute (idea capture §8)."""
 
     queries_per_site_per_minute: int = 20
-    reserve_ratio: float = 0.1                    # presumed-safe yeniden kontrol rezervi
+    reserve_ratio: float = 0.1                    # reserve for re-checking presumed-safe workers
     sweep_minutes: dict = field(default_factory=lambda: {"marginal": 10, "severe": 2})
     severe_delta_c: float = 2.0                   # limit + delta → "severe"
-    reverify_minutes: int = 10                    # bu süre içinde doğrulanan işçiye tekrar location_verify yok
-    congestion_cache_minutes: int = 5             # aynı mikro-bölge için congestion sorgusu tekrar edilmez
+    reverify_minutes: int = 10                    # no repeat location_verify for a worker verified within this time
+    congestion_cache_minutes: int = 5             # the congestion query is not repeated for the same micro-zone
 
-    # --- maliyet merdiveninin TAZELİK ekseni (operatör geri bildirimi, 9 Eylül 2026)
-    # Şebekede maliyeti belirleyen şey "hüküm mü koordinat mı" değil, TALEP EDİLEN TAZELİKTİR.
-    # Önbellekten cevaplanabilen sorgu ucuzdur (veritabanı okuması). Taze bir fix gerekiyorsa
-    # konumlandırma prosedürü çalışır: paging + RRC kurulumu + ölçüm + raporlama — asıl sinyalleşme
-    # yükü budur ve hangi ucu çağırdığınızdan bağımsızdır.
-    loose_max_age_s: int = 600                    # basamak 2: önbellek cevabı kabul (ucuz)
-    strict_max_age_s: int = 60                    # basamak 3: taze fix zorlar (pahalı)
-    reconcile_minutes: int = 15                   # periyodik mutabakat: durumu bilinmeyen işçileri tara
-    # WBGT okuması bu yaştan eskiyse eşik DEĞERLENDİRİLEMEZ. Ölçüm yoksa "ihlal yok" demek,
-    # ölen bir beslemeyi sessizce "güvende" hükmüne çevirir — bu, ürünün "hata asla güvende
-    # hükmü üretmez" iddiasının tam istisnasıydı (9 Eylül denetim bulgusu).
+    # --- the FRESHNESS axis of the cost ladder (operator feedback, 9 September 2026)
+    # What sets the cost on the network is not "verdict or coordinate" but the REQUESTED FRESHNESS.
+    # A query that can be answered from cache is cheap (a database read). If a fresh fix is needed,
+    # the positioning procedure runs: paging + RRC setup + measurement + reporting — that is the real
+    # signalling load, and it is independent of which endpoint you call.
+    loose_max_age_s: int = 600                    # rung 2: accept a cached answer (cheap)
+    strict_max_age_s: int = 60                    # rung 3: force a fresh fix (expensive)
+    reconcile_minutes: int = 15                   # periodic reconciliation: sweep workers whose state is unknown
+    # If the WBGT reading is older than this, the threshold CANNOT BE ASSESSED. Saying "no breach" when there
+    # is no reading silently turns a dead feed into a "safe" verdict — this was the exact exception to the
+    # product's claim that "an error never produces a safe verdict" (9 September audit finding).
     wbgt_max_age_minutes: int = 30
-    # Vardiya listesinde olup şebekede HİÇ görünmemiş işçi: listede olmak sahada olmak
-    # değildir. Ayrı bir rezerv açmak yerine (keyfi bölme, her zaman yanlış oranda kalır)
-    # aynı kuyruğa girer ve maruziyeti bu önselle çarpılır — özel durum yerine tanımlı değer.
+    # A worker on the shift roster but NEVER seen on the network: being on the roster is not being
+    # on site. Instead of opening a separate reserve (an arbitrary split always ends up in the wrong
+    # ratio) they join the same queue and their exposure is multiplied by this prior — a defined value
+    # instead of a special case.
     presence_prior_roster_only: float = 0.5
-    # Kanit defteri urunun KENDISI, o yuzden silinmez — ama bellek ici prototipte sinirsiz
-    # buyuyemez: 8 saatlik bir vardiya 400 iscide 7.341 satir / 13,9 MB uretiyor (olculdu).
-    # Uretimde kalici depolama + yasal saklama suresi gerekir; burada acik bir tavan koyuyoruz
-    # ve kac satirin dusuruldugunu SAYIYORUZ. Sessizce budamak bir kanit defterinde kabul edilemez.
+    # The evidence ledger IS the product, so it is not deleted — but in an in-memory prototype it cannot
+    # grow without bound: an 8-hour shift with 400 workers produces 7,341 rows / 13.9 MB (measured).
+    # Production needs durable storage + a legal retention period; here we set an explicit cap and
+    # COUNT how many rows were dropped. Silent pruning is unacceptable in an evidence ledger.
     ledger_max_entries: int = 5000
 
     def to_dict(self) -> dict:
@@ -107,17 +108,18 @@ class VulnerabilityWeights:
 
 @dataclass(frozen=True)
 class DistressConfig:
-    """Bayılma-vs-bitmiş-pil sınıflandırma eşikleri (idea capture §9)."""
+    """Collapse-vs-dead-battery classification thresholds (idea capture §9)."""
 
-    cluster_min_unreachable: int = 2       # ≥ bu kadar komşu da sessizse → ağ olayı
-    collapse_min_confidence: float = 0.6   # medic bildirimi için alt sınır
-    continuous_reachable_hours: float = 6  # bu kadar süre kesintisiz erişilebilir + düşüş → şüpheli
+    cluster_min_unreachable: int = 2       # if ≥ this many neighbours are silent too → network event
+    collapse_min_confidence: float = 0.6   # lower bound for notifying the medic
+    continuous_reachable_hours: float = 6  # continuously reachable for this long + a drop → suspicious
     staleness_cap_minutes: int = 30
-    # UZAMIS MARUZIYET — sessizlik tek sinyal degildir.
-    # Bütün sıkıntı çıkarımı cihazın SUSMASINA dayanıyordu. Ama telefonu cebinde, şarjı dolu
-    # ve erişilebilir bir işçi de bayılabilir; şebeke bunu hiç görmez. Kanun ise zaten işin
-    # DURMASINI emrediyor: eşik aşılmışken hâlâ içeride doğrulanan işçi, telefonu çalışsa da
-    # hem uyum ihlali hem sağlık riskidir. Bu süre aşılınca sessizlikten BAĞIMSIZ eskalasyon.
+    # PROLONGED EXPOSURE — silence is not the only signal.
+    # All distress inference relied on the device GOING SILENT. But a worker with the phone in their
+    # pocket, fully charged and reachable, can also collapse; the network never sees it. And the law
+    # already orders work to STOP: a worker still verified inside while the threshold is exceeded is,
+    # even with a working phone, both a compliance breach and a health risk. Past this duration,
+    # escalation INDEPENDENT of silence.
     prolonged_exposure_minutes: int = 45
 
     def to_dict(self) -> dict:
@@ -134,15 +136,15 @@ class Config:
     budget: BudgetConfig = field(default_factory=BudgetConfig)
     vulnerability: VulnerabilityWeights = field(default_factory=VulnerabilityWeights)
     distress: DistressConfig = field(default_factory=DistressConfig)
-    # 9 Eylül 2026 canlı ölçümü: QoD oturumu QOS_E + 203.0.113.10 ile 200 döndü (sessionId geldi).
-    # RFC1918 (10.x) adresi denenmedi; belgelenmiş bir kabul kanıtı olmadığı için varsayılanı
-    # canlıda ÇALIŞTIĞI ölçülen değere çektik. 203.0.113.0/24 RFC 5737 dokümantasyon aralığıdır —
-    # gerçek bir sunucu değil, ama yönlendirilebilir bir adres biçimi.
+    # 9 September 2026 live measurement: a QoD session with QOS_E + 203.0.113.10 returned 200 (a sessionId came back).
+    # An RFC1918 (10.x) address was not tried; since there is no documented proof it is accepted, we moved
+    # the default to the value measured to WORK live. 203.0.113.0/24 is the RFC 5737 documentation range —
+    # not a real server, but a routable address format.
     qod_profile: str = "QOS_E"
-    qod_app_server_ipv4: str = "203.0.113.10"   # sağlıkçı video sunucusu (demo; RFC 5737)
+    qod_app_server_ipv4: str = "203.0.113.10"   # medic video server (demo; RFC 5737)
     min_perimeter_radius_m: float = 500.0
-    # HS_WBGT_LIMIT_C: dağıtımın kendi eşiği. Her saha `with_jurisdiction()` ile kurulduğu için
-    # burada saklanır; yoksa yargı alanı değişince yasal değere sessizce geri dönülüyordu.
+    # HS_WBGT_LIMIT_C: the deployment's own threshold. Stored here because every site is built with
+    # `with_jurisdiction()`; otherwise changing the jurisdiction silently reverted to the legal value.
     wbgt_limit_override_c: float | None = None
 
     @classmethod

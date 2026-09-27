@@ -1,13 +1,13 @@
-"""Gemini'yi CANLI cagirip ne onerdigini ve kapinin ne yaptigini KAYDEDER.
+"""Calls Gemini LIVE and RECORDS what it proposed and what the gate did.
 
-Neden: "model bagli" demek ile "model calistirildi" demek ayni sey degil. Bu betik gercek bir
-tarama kosturur, modelin onerdigi sirayi ve guvenlik kapisinin verdigi karari `evidence/` altina
-makine uretimi bir dosya olarak yazar. Deck'teki her "canli" iddiasinin arkasinda bir dosya var.
+Why: saying "the model is connected" is not the same as saying "the model was run". This script runs a
+real sweep and writes the order the model proposed and the decision the safety gate made under
+`evidence/` as a machine-generated file. Every "live" claim in the deck has a file behind it.
 
-CAMARA cagrilari fixture modunda kalir — Nokia kotasini harcamadan modelin kendisini olceriz.
-Modele giden istemde ham telefon numarasi, isim veya koordinat YOKTUR (bkz. llm_adapter._payload).
+CAMARA calls stay in fixture mode — we measure the model itself without spending Nokia quota.
+The prompt sent to the model contains NO raw phone number, name or coordinate (see llm_adapter._payload).
 
-Calistirma (heatshield/ icinden):
+Run (from inside heatshield/):
     python tools/run_live_planner.py
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ class Facade:
 def main() -> None:
     require_live_flag("Live planner run against Gemini / Groq.")
     load_env()
-    os.environ["NAC_MODE"] = "fixture"          # Nokia kotasini harcama; olculen sey MODEL
+    os.environ["NAC_MODE"] = "fixture"          # do not spend Nokia quota; what is measured is the MODEL
     os.environ.setdefault("HS_PLANNER", "auto")
 
     from nac_client import FixtureBackend, NacClient, NacConfig
@@ -65,8 +65,8 @@ def main() -> None:
                        lat=25.38, lng=51.49, radius_m=500, cfg=cfg)
     for i in range(1, 13):
         phone = f"+9999991{i:04d}"
-        #  acikca temizlenir: demo profilleri ayni numara araliginda ve biri hata
-        # enjeksiyonu tasiyor. Burada olculen sey MODEL, CAMARA hata yolu degil.
+        # Cleared explicitly: the demo profiles are in the same number range and one of them carries
+        # error injection. What is measured here is the MODEL, not the CAMARA error path.
         fx.update_profile(phone, {"location": {"lat": 25.3804, "lng": 51.4896, "radius": 120},
                                   "reachable": i != 2, "connectivity": ["DATA", "SMS"],
                                   "congestion": "Low", "fail": None, "latency_ms": 0,

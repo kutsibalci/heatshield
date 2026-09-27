@@ -1,25 +1,25 @@
-"""LLM planlayıcı — model kuralların ALTINDA çalışır.
+"""LLM planner — the model runs BELOW the rules.
 
-Mimarinin tek cümlesi: **kurallar planı üretir, model yalnızca sırayı tartışabilir.**
+The architecture in one sentence: **the rules produce the plan, the model may only argue about the order.**
 
-`rules.plan_verification()` bütçeyle kesilmiş bir aday aksiyon listesi üretir. Model bu listeyi görür ve
-yeniden sıralamayı ÖNERİR. Öneri, `guard_plan()` içindeki yapısal kontrolden geçmeden uygulanmaz:
+`rules.plan_verification()` produces a budget-cut list of candidate actions. The model sees this list and
+PROPOSES a re-ordering. The proposal is not applied without passing the structural check in `guard_plan()`:
 
-  - Yeni işçi ekleyemez        → listede olmayan bir kimlik reddedilir
-  - Yeni API çağrısı uyduramaz → her aksiyonun API'si kurallardan gelir, model seçemez
-  - Planı kısaltamaz         → öneri PERMÜTASYON olmak zorunda; bir işçiyi düşürmek onun hiç
-                                 sorgulanmamasına, dolayısıyla hükmün hiç doğmamasına yol açar
-  - Güvenlik hükmünü bozamaz  → model hüküm görmez; TRUE/FALSE/bayılma kararları kurallarındır
-  - Tekrar üretemez           → aynı işçi iki kez sıralanamaz
+  - Cannot add a new worker        → an id not in the list is rejected
+  - Cannot invent a new API call   → each action's API comes from the rules; the model cannot pick it
+  - Cannot shorten the plan        → the proposal must be a PERMUTATION; dropping a worker means they are
+                                     never queried, and therefore the verdict never arises
+  - Cannot overturn a safety verdict → the model sees no verdicts; TRUE/FALSE/collapse decisions belong to the rules
+  - Cannot produce duplicates      → the same worker cannot be ranked twice
 
-Kontrolün herhangi biri düşerse öneri BÜTÜNÜYLE reddedilir ve kuralların sırası uygulanır. Reddin
-gerekçesi `explain[]`'e yazılır: jüri modelin ne önerdiğini ve neden tutulmadığını görebilir.
+If any check fails, the proposal is rejected ENTIRELY and the rules' order is applied. The reason for the
+rejection is written to `explain[]`: the jury can see what the model proposed and why it was not kept.
 
-Model erişilemezse (anahtar yok, zaman aşımı, bozuk JSON) sistem sessizce deterministik sıraya döner —
-çalışmayan bir model ürünü durdurmaz, yalnızca sıralamayı kurallara bırakır.
+If the model is unreachable (no key, timeout, broken JSON) the system silently falls back to the deterministic
+order — a non-working model does not stop the product, it just leaves the ordering to the rules.
 
-Sağlayıcılar (MENA Ignite Resource & Tooling Guide'dan): Google AI Studio (Gemini) ve Groq.
-Anahtar yoksa `RulesPlanner` devreye girer ve bu durum raporda açıkça belirtilir.
+Providers (from the MENA Ignite Resource & Tooling Guide): Google AI Studio (Gemini) and Groq.
+Without a key `RulesPlanner` takes over, and this is stated explicitly in the report.
 """
 from __future__ import annotations
 
@@ -31,21 +31,21 @@ from typing import Any, Protocol
 
 import httpx
 
-# ---------------------------------------------------------------------------- yapılandırma
+# ---------------------------------------------------------------------------- configuration
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# 9 Eylul 2026, olculdu: `gemini-2.0-flash` ve `gemini-2.5-flash` yeni hesaplara KAPALI (404,
-# "no longer available to new users"), onerilen `gemini-3.6-flash` ise 503 doner (yogunluk).
-# Bu yuzden takma ada baglaniyoruz. Normalde tam surum sabitlenir; burada bunu yapmamamizin
-# gerekcesi su: modelin ciktisi `guard_plan()` tarafindan YAPISAL olarak denetleniyor.
-# Model degisirse plan uyelugini degistiremez, API secemez, butceyi asamaz — sozlesme sabit.
-# Yani model surumu kayabilir, GUVENLIK OZELLIGI kayamaz. Takma ad bu yuzden guvenli.
+# 9 September 2026, measured: `gemini-2.0-flash` and `gemini-2.5-flash` are CLOSED to new accounts (404,
+# "no longer available to new users"), while the recommended `gemini-3.6-flash` returns 503 (overload).
+# That is why we bind to the alias. Normally the exact version is pinned; the reason we do not do that
+# here is this: the model's output is checked STRUCTURALLY by `guard_plan()`.
+# If the model changes it cannot change plan membership, pick an API or exceed the budget — the contract is fixed.
+# So the model version may drift, the SAFETY PROPERTY cannot. That is why the alias is safe.
 DEFAULT_GEMINI_MODEL = os.environ.get("HS_GEMINI_MODEL", "gemini-flash-latest")
-# 9 Eylul 2026, olculdu: Groq'un model listesinde Llama yok (404). Calisan ve JSON modunu
-# destekleyen adaylar olculdu: gpt-oss-20b 950 ms, gpt-oss-120b 647 ms, qwen3.8-27b 454 ms.
-# Kucuk model bilincli tercih: burasi DUSUK GECIKME yolu ve ciktinin dogrulugunu zaten
-# `guard_plan()` denetliyor — hiza yatirim yapmak, akil yurutmeye yatirim yapmaktan onemli.
+# 9 September 2026, measured: there is no Llama in Groq's model list (404). Candidates that work and
+# support JSON mode were measured: gpt-oss-20b 950 ms, gpt-oss-120b 647 ms, qwen3.8-27b 454 ms.
+# A small model is a deliberate choice: this is the LOW-LATENCY path and `guard_plan()` already checks
+# the correctness of the output — investing in speed matters more than investing in reasoning.
 DEFAULT_GROQ_MODEL = os.environ.get("HS_GROQ_MODEL", "openai/gpt-oss-20b")
 PLANNER_TIMEOUT_S = float(os.environ.get("HS_PLANNER_TIMEOUT_S", "6"))
 
@@ -72,10 +72,10 @@ _SAFE_FIELD = re.compile(r"[^A-Za-z0-9 _.:+-]")
 
 
 def _clean(value: Any, limit: int = 24) -> Any:
-    """Serbest metin alanlarını isteme sokmadan önce daraltır.
+    """Narrows free-text fields before putting them into the prompt.
 
-    `micro_zone` gibi alanları işveren doldurur; oraya talimat yazıp modeli yönlendirmeye çalışmak
-    mümkün. Kapı zaten sonucu denetliyor, ama saldırı yüzeyini de küçültüyoruz.
+    Fields like `micro_zone` are filled in by the employer; it is possible to write instructions there and
+    try to steer the model. The gate already checks the result, but we shrink the attack surface too.
     """
     if not isinstance(value, str):
         return value
@@ -84,13 +84,13 @@ def _clean(value: Any, limit: int = 24) -> Any:
 
 class Planner(Protocol):
     def propose(self, site_snapshot: dict, candidate_actions: list[Any]) -> list[Any]:
-        """Aday aksiyonları (rules.plan_verification çıktısı) yeniden sıralar/kırpar. Yeni aksiyon ekleyemez."""
+        """Re-orders/trims the candidate actions (output of rules.plan_verification). Cannot add new actions."""
         ...
 
 
-# ---------------------------------------------------------------------------- kural planlayıcı
+# ---------------------------------------------------------------------------- rules planner
 class RulesPlanner:
-    """Varsayılan: kuralların planını olduğu gibi geçirir. Model yoksa veya reddedildiğinde bu çalışır."""
+    """Default: passes the rules' plan through unchanged. Runs when there is no model or it was rejected."""
 
     name = "deterministic-rules"
     provider = "none"
@@ -102,31 +102,31 @@ class RulesPlanner:
         return {"used": False, "reason": "planner=rules (no model in the loop)"}
 
 
-NoopPlanner = RulesPlanner  # geriye dönük ad
+NoopPlanner = RulesPlanner  # backward-compatible name
 
 
-# ---------------------------------------------------------------------------- güvenlik kapısı
+# ---------------------------------------------------------------------------- safety gate
 def _action_id(act: Any) -> str:
-    """Aksiyonun işçi kimliği. `Action.worker` bir sinyal sözlüğüdür."""
+    """The action's worker id. `Action.worker` is a signal dict."""
     w = getattr(act, "worker", None) or {}
     return str(w.get("worker_id") or w.get("masked") or "")
 
 
 def guard_plan(candidates: list[Any], proposed_ids: list[str]) -> tuple[list[Any] | None, dict]:
-    """Modelin önerdiği sırayı yapısal olarak denetler. Kabul edilen tek şey PERMÜTASYONDUR.
+    """Structurally checks the order the model proposed. The only thing accepted is a PERMUTATION.
 
-    Kırpmaya neden izin verilmiyor: bir denetimde ölçüldü ki modelin listeden bir işçi düşürmesi,
-    o işçinin hiç sorgulanmamasına ve dolayısıyla `probable_collapse` hükmünün HİÇ DOĞMAMASINA yol
-    açıyor (escalations ['W-002'] → []). Model hükmü değiştirmiyor, hükmün doğacağı sorguyu iptal
-    ediyor — sonuç aynı. Bu yüzden öneri, planın tamamını tam olarak bir kez içermek zorunda:
-    model sırayı tartışabilir, planı KISALTAMAZ.
+    Why trimming is not allowed: an audit measured that the model dropping a worker from the list leads
+    to that worker never being queried and therefore the `probable_collapse` verdict NEVER ARISING
+    (escalations ['W-002'] → []). The model does not change the verdict, it cancels the query the verdict
+    would come from — the result is the same. So the proposal must contain the whole plan exactly once:
+    the model may argue about the order, it CANNOT SHORTEN the plan.
 
-    Dönen: (kabul edilen aksiyon listesi | None, karar sözlüğü).
-    None dönerse öneri reddedilmiştir ve çağıran kuralların sırasını kullanmalıdır.
+    Returns: (accepted action list | None, verdict dict).
+    If None is returned the proposal was rejected and the caller must use the rules' order.
     """
     ids = [_action_id(a) for a in candidates]
     if any(not i for i in ids) or len(set(ids)) != len(ids):
-        # Plan kimlikleri belirsizse modele hiç güvenmeyiz (fail-closed).
+        # If the plan's ids are ambiguous we do not trust the model at all (fail-closed).
         return None, {"accepted": False, "violation": "ambiguous_plan",
                       "detail": "the plan has duplicate or empty action ids - the model was not trusted with it"}
     by_id = dict(zip(ids, candidates, strict=True))
@@ -142,10 +142,10 @@ def guard_plan(candidates: list[Any], proposed_ids: list[str]) -> tuple[list[Any
     for pid in proposed_ids:
         pid = str(pid)
         if pid not in by_id:
-            unknown.append(pid)          # KURAL: listede olmayan işçi eklenemez
+            unknown.append(pid)          # RULE: a worker not in the list cannot be added
             continue
         if pid in seen:
-            duplicated.append(pid)       # KURAL: aynı işçi iki kez sıralanamaz
+            duplicated.append(pid)       # RULE: the same worker cannot be ranked twice
             continue
         seen.add(pid)
         ordered.append(by_id[pid])
@@ -158,7 +158,7 @@ def guard_plan(candidates: list[Any], proposed_ids: list[str]) -> tuple[list[Any
                       "detail": f"{len(duplicated)} id(s) repeated", "offending": duplicated[:5]}
 
     missing = [i for i in ids if i not in seen]
-    if missing:                          # KURAL: plan kısaltılamaz — sansür eskalasyonu öldürür
+    if missing:                          # RULE: the plan cannot be shortened — censorship kills escalation
         return None, {"accepted": False, "violation": "incomplete_order",
                       "detail": f"{len(missing)} worker(s) dropped - the model may reorder the plan, not shorten it",
                       "offending": missing[:5]}
@@ -167,14 +167,14 @@ def guard_plan(candidates: list[Any], proposed_ids: list[str]) -> tuple[list[Any
                      "reordered": [_action_id(a) for a in ordered] != ids}
 
 
-# ---------------------------------------------------------------------------- LLM planlayıcı
+# ---------------------------------------------------------------------------- LLM planner
 class LLMPlanner:
-    """Gemini (Google AI Studio) veya Groq üzerinden sıralama önerisi alır; `guard_plan` ile denetler."""
+    """Gets an ordering proposal via Gemini (Google AI Studio) or Groq; checks it with `guard_plan`."""
 
     def __init__(self, provider: str, api_key: str, model: str | None = None):
         self.provider = provider
         self.api_key = api_key
-        # Ortam değişkeni ÇAĞRI anında okunur (import anında değil) ki demo/test modeli değiştirebilsin.
+        # The environment variable is read at CALL time (not at import time) so demo/test can change the model.
         env_model = os.environ.get("HS_GEMINI_MODEL") if provider == "gemini" else os.environ.get("HS_GROQ_MODEL")
         self.model = model or env_model or (DEFAULT_GEMINI_MODEL if provider == "gemini" else DEFAULT_GROQ_MODEL)
         self.name = f"{provider}:{self.model}"
@@ -183,7 +183,7 @@ class LLMPlanner:
     def last_verdict(self) -> dict:
         return dict(self._verdict)
 
-    # ---- istem
+    # ---- prompt
     def _payload(self, site_snapshot: dict, candidates: list[Any]) -> str:
         items = []
         for act in candidates:
@@ -198,12 +198,12 @@ class LLMPlanner:
                 "first_day_on_site": _clean(w.get("first_day_on_site")),
                 "prior_incident": w.get("prior_incident"),
                 "last_signal_at": _clean(w.get("last_signal_at")),
-                "micro_zone": _clean(w.get("micro_zone"), 16),   # işveren serbest metni — daraltılır
+                "micro_zone": _clean(w.get("micro_zone"), 16),   # employer free text — narrowed
                 "rules_reason": _clean(act.reason, 120),
             })
         return json.dumps({"site": site_snapshot, "plan": items}, ensure_ascii=False, default=str)
 
-    # ---- sağlayıcı çağrıları
+    # ---- provider calls
     def _call_gemini(self, prompt: str) -> str:
         url = GEMINI_URL.format(model=self.model)
         body = {
@@ -211,7 +211,7 @@ class LLMPlanner:
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
         }
-        # Anahtar BAŞLIKTA: URL sorgusundaki anahtar httpx/proxy loglarına ve hata mesajlarına düşer.
+        # Key in the HEADER: a key in the URL query ends up in httpx/proxy logs and error messages.
         r = httpx.post(url, headers={"x-goog-api-key": self.api_key}, json=body, timeout=PLANNER_TIMEOUT_S)
         r.raise_for_status()
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -228,7 +228,7 @@ class LLMPlanner:
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
 
-    # ---- ana giriş
+    # ---- main entry
     def propose(self, site_snapshot: dict, candidate_actions: list[Any]) -> list[Any]:
         candidates = list(candidate_actions)
         if len(candidates) < 2:
@@ -243,10 +243,10 @@ class LLMPlanner:
             parsed = json.loads(raw)
             order = [str(x.get("id")) for x in parsed.get("order", []) if isinstance(x, dict)]
             whys = {str(x.get("id")): str(x.get("why", ""))[:120] for x in parsed.get("order", []) if isinstance(x, dict)}
-        except Exception as e:  # zaman aşımı, ağ, bozuk JSON, kota — hepsi aynı yere çıkar
-            # HTTP durumunu da yaz: "model erişilemedi" bir denetçiye yetmez. 503 (sağlayıcı
-            # yoğun), 429 (kota) ve 404 (model kaldırıldı) çok farklı sorunlar ve defterde
-            # ayırt edilebilmeleri gerekir.
+        except Exception as e:  # timeout, network, broken JSON, quota — all end up in the same place
+            # Record the HTTP status too: "model unreachable" is not enough for an auditor. 503 (provider
+            # overloaded), 429 (quota) and 404 (model removed) are very different problems and must be
+            # distinguishable in the ledger.
             status = getattr(getattr(e, "response", None), "status_code", None)
             detail = f"{type(e).__name__}" + (f" HTTP {status}" if status else "")
             self._verdict = {"used": False, "reason": f"model unreachable: {detail}",
@@ -259,7 +259,7 @@ class LLMPlanner:
                         "latency_ms": int((time.monotonic() - t0) * 1000),
                         "note": str(parsed.get("note", ""))[:160], "why": whys})
 
-        if ordered is None:                  # KAPI REDDETTİ → kuralların sırası uygulanır
+        if ordered is None:                  # THE GATE REJECTED → the rules' order is applied
             self._verdict = {"used": False, **verdict}
             return candidates
 
@@ -267,17 +267,17 @@ class LLMPlanner:
         return ordered
 
 
-# ---------------------------------------------------------------------------- sağlayıcı zinciri
+# ---------------------------------------------------------------------------- provider chain
 class ChainPlanner:
-    """Birincil sağlayıcı düşerse ikincisi denenir.
+    """If the primary provider fails, the second one is tried.
 
-    9 Eylül 2026 ölçümü: Gemini'ye arka arkaya on çağrının onu da **HTTP 503** döndü (sağlayıcı
-    tarafında yoğunluk, bizim kotamız değil) ve gecikme 0,6 ile 18,5 saniye arasında değişti.
-    Tek sağlayıcıya bağlı bir yeniden sıralayıcı pratikte çoğu zaman yok demektir.
+    9 September 2026 measurement: all ten of ten back-to-back calls to Gemini returned **HTTP 503**
+    (overload on the provider side, not our quota) and latency ranged between 0.6 and 18.5 seconds.
+    A re-ranker tied to a single provider is, in practice, absent most of the time.
 
-    Zincir yalnızca ERİŞİLEBİLİRLİK sorununu çözer, güvenlik sözleşmesini değiştirmez: her iki
-    sağlayıcının önerisi de aynı `guard_plan()` kapısından geçer, ikisi de düşerse deterministik
-    sıraya dönülür. Model bir iyileştirmedir, bağımlılık değil.
+    The chain only solves the AVAILABILITY problem; it does not change the safety contract: both
+    providers' proposals pass through the same `guard_plan()` gate, and if both fail we fall back to
+    the deterministic order. The model is an improvement, not a dependency.
     """
 
     provider = "chain"
@@ -303,12 +303,12 @@ class ChainPlanner:
         return list(candidate_actions)
 
 
-# ---------------------------------------------------------------------------- seçim
+# ---------------------------------------------------------------------------- selection
 def get_planner() -> Planner:
-    """`HS_PLANNER` = rules | gemini | groq | auto (varsayılan auto).
+    """`HS_PLANNER` = rules | gemini | groq | auto (default auto).
 
-    auto: GEMINI_API_KEY varsa Gemini, yoksa GROQ_API_KEY varsa Groq, o da yoksa kurallar.
-    Anahtar yoksa sistem sessizce deterministik çalışır — model bir iyileştirmedir, bağımlılık değil.
+    auto: Gemini if GEMINI_API_KEY is set, otherwise Groq if GROQ_API_KEY is set, otherwise the rules.
+    Without a key the system silently runs deterministically — the model is an improvement, not a dependency.
     """
     choice = (os.environ.get("HS_PLANNER") or "auto").strip().lower()
     gem = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -325,7 +325,7 @@ def get_planner() -> Planner:
         if gem:
             chain.append(LLMPlanner("gemini", gem))
         if grq:
-            chain.append(LLMPlanner("groq", grq))       # düşük gecikme yolu VE yedek sağlayıcı
+            chain.append(LLMPlanner("groq", grq))       # low-latency path AND backup provider
         if len(chain) > 1:
             return ChainPlanner(chain)
         if chain:

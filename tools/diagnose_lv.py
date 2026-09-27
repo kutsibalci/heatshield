@@ -1,11 +1,11 @@
-"""Location Verification neden hep FALSE donuyor? Mentorun uc hipotezini tek tek eler.
+"""Why does Location Verification always return FALSE? Eliminates the mentor's three hypotheses one by one.
 
-Mentor (9 Eylul 2026): "200 km'de FALSE bir dogruluk sorunu degil. Belirsizlik olsaydi bir
-noktada TRUE'ya donerdi. Fonksiyonel bir sorun var; su sirayla bakin: (1) koordinat sirasi
-veya isareti, (2) cihaz tanimlayicisinin iki cagri arasinda farkli olmasi, (3) sandbox'ta iki
-API'nin ayni veri kaynagina bagli olmamasi."
+Mentor (9 September 2026): "FALSE at 200 km is not an accuracy problem. If it were uncertainty, it
+would turn TRUE at some point. There is a functional problem; look in this order: (1) coordinate order
+or sign, (2) the device identifier differing between the two calls, (3) the two APIs not being backed
+by the same data source in the sandbox."
 
-Bu betik ucunu de test eder ve sonucu kayda gecirir.
+This script tests all three and records the result.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from _common import evidence_file, load_env, require_live_flag  # noqa: E402  (depo kökü + paket yolu)
+from _common import evidence_file, load_env, require_live_flag  # noqa: E402  (repo root + package path)
 from nac_client import NacClient, NacConfig, NacError  # noqa: E402
 from nac_client.privacy import normalize_phone  # noqa: E402
 
@@ -32,7 +32,7 @@ def main() -> None:
     raw_phone = os.environ["NAC_PROBE_PHONE"]
     phone = normalize_phone(raw_phone)
 
-    # --- HIPOTEZ 2 once: iki cagri BYTE DUZEYINDE ayni cihazi mi kullaniyor?
+    # --- HYPOTHESIS 2 first: do the two calls use the same device AT THE BYTE LEVEL?
     print("HIPOTEZ 2 — cihaz tanimlayicisi")
     print(f"  .env ham deger      : {raw_phone[:6]}***{raw_phone[-4:]}  (uzunluk {len(raw_phone)})")
     print(f"  normalize edilmis   : {phone[:6]}***{phone[-4:]}  (uzunluk {len(phone)})")
@@ -45,7 +45,7 @@ def main() -> None:
     ret_ts = (r.data or {}).get("lastLocationTime")
     print(f"\n  Retrieval -> lat={lat}  lng={lng}  radius={area.get('radius')}  ts={ret_ts}")
 
-    # --- HIPOTEZ 1: koordinat sirasi / isareti
+    # --- HYPOTHESIS 1: coordinate order / sign
     print("\nHIPOTEZ 1 — koordinat sirasi ve isareti")
     cases = [
         ("dogru sira (lat, lng)", lat, lng),
@@ -66,7 +66,7 @@ def main() -> None:
         rows.append(row)
         print(f"  {label:<24} -> {row.get('result') or row.get('error')}")
 
-    # --- HIPOTEZ 3 icin ipucu: tazelik talebi zaman damgasini degistiriyor mu?
+    # --- Hint for HYPOTHESIS 3: does the freshness request change the timestamp?
     print("\nMENTOR DOGRULAMASI — siki maxAge taze fix uretiyor mu?")
     freshness = []
     for max_age in (3600, 60, 10):

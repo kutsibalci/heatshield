@@ -1,4 +1,4 @@
-"""Tarama motoru (ajan politikası) testleri — fixture modunda gerçek nac_client ile (HTTP yok)."""
+"""Sweep engine (agent policy) tests — with the real nac_client in fixture mode (no HTTP)."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -10,7 +10,7 @@ from rules import Config
 
 ROOT = Path(__file__).resolve().parents[1]
 UTC = timezone.utc
-T0 = datetime(2026, 8, 17, 3, 0, tzinfo=UTC)    # 06:00 Doha — yasak saati dışı
+T0 = datetime(2026, 8, 17, 3, 0, tzinfo=UTC)    # 06:00 Doha — outside ban hours
 NOON = datetime(2026, 8, 17, 9, 0, tzinfo=UTC)  # 12:00 Doha
 SITE = {"lat": 25.3917, "lng": 51.5299, "radius_m": 500}
 
@@ -37,14 +37,14 @@ def site():
 NAMED = [("W-001", "+99999910001", "z1"), ("W-002", "+99999910002", "z1"), ("W-003", "+99999910003", "z2"),
          ("W-004", "+99999910004", "z2"), ("W-005", "+99999910005", "z3"), ("W-006", "+99999910006", "z3"),
          ("W-007", "+99999910007", "z1"), ("W-008", "+99999910008", "z1"),
-         ("W-009", "+99999910009", "z1")]   # belirsizlik bölgesi çeperi kesiyor → PARTIAL
+         ("W-009", "+99999910009", "z1")]   # uncertainty area crosses the perimeter → PARTIAL
 
 
 def populate(site, enter_at=T0, count=None):
     for wid, phone, zone in NAMED[: count or len(NAMED)]:
         hist = {"continuous_reachable_hours": 8} if wid == "W-002" else ({"recurring_unreachable_window": True} if wid == "W-005" else {})
         site.workers[wid] = new_worker(wid, phone, name=wid, micro_zone=zone, device_history=hist,
-                                       moving_out=(wid == "W-006"),   # saha sinyali: turnikeden cikis kaydi
+                                       moving_out=(wid == "W-006"),   # site signal: turnstile exit record
                                        first_day_on_site=(enter_at - timedelta(days=1 if wid == "W-002" else 400)).date().isoformat())
         apply_geofence_event(site, wid, "enter", enter_at)
     return site
@@ -72,7 +72,7 @@ def test_breach_opens_query_authority_and_ranks(site, nac):
     populate(site)
     r = step(site, NOON, nac, site.cfg, 34.5)
     assert r["breached"] and r["level"] == "severe" and site.state in ("alert", "distress", "emergency")
-    assert r["ranked"][0]["worker_id"] == "W-002"          # ilk hafta işçisi en tepede
+    assert r["ranked"][0]["worker_id"] == "W-002"          # first-week worker at the top
     assert all(c["api"] == "location-verification" for c in r["calls"])
     assert site.breach_started_at == NOON
 
@@ -108,24 +108,24 @@ def test_exit_event_clears_worker_and_returns_budget(site, nac):
 def test_location_verify_false_clears_worker(site, nac):
     populate(site)
     r = step(site, NOON, nac, site.cfg, 34.5)
-    # W-007 fixture'da saha dışında → FALSE → kuyruktan düşer
+    # W-007 is off site in the fixture → FALSE → dropped from the queue
     assert site.workers["W-007"].cleared is True and site.workers["W-007"].verified_inside is False
     assert any(e["event"] == "worker_cleared" for e in r["ledger_added"])
 
 
 def test_partial_is_insufficient_evidence_not_a_movement_signal(site, nac):
-    """PARTIAL geometriktir: belirsizlik bölgesi alanla kesişiyor ama içinde kalmıyor.
+    """PARTIAL is geometric: the uncertainty area intersects the zone but does not stay inside it.
 
-    Hareketle ilgisi yoktur (operatör düzeltmesi, 9 Eylül 2026). Bu yüzden "doğrulandı"
-    sayılmaz, bayatlık artmaya devam eder ve işçi kuyrukta kalır — bilinmeyen güvende değildir."""
+    It has nothing to do with movement (operator correction, 9 September 2026). So it does not count
+    as "verified", staleness keeps growing and the worker stays in the queue — unknown is not safe."""
     populate(site)
     r = step(site, NOON, nac, site.cfg, 34.5)
-    w9 = site.workers["W-009"]                       # fixture PARTIAL döndürüyor
-    assert w9.verified_inside is None                # doğrulanmadı sayıldı
-    assert w9.cleared is False                       # kuyruktan DÜŞMEDİ
-    assert w9.last_signal_at is None or w9.last_signal_at < NOON   # bayatlık sıfırlanmadı
+    w9 = site.workers["W-009"]                       # fixture returns PARTIAL
+    assert w9.verified_inside is None                # counted as not verified
+    assert w9.cleared is False                       # NOT dropped from the queue
+    assert w9.last_signal_at is None or w9.last_signal_at < NOON   # staleness was not reset
     assert any(e["event"] == "insufficient_evidence" for e in r["ledger_added"])
-    assert site.partial_verifications >= 1           # PARTIAL oranı ölçülüyor
+    assert site.partial_verifications >= 1           # the PARTIAL rate is measured
 
 
 # ------------------------------------------------------------------ Move 3 + §9
@@ -136,13 +136,13 @@ def test_collapse_escalates_to_medic_with_qod_then_one_shot_location(site, nac):
     verdicts = {v["worker_id"]: v for v in r2["verdicts"]}
     assert verdicts["W-002"]["verdict"] == "probable_collapse"
     assert "notify_medic" in verdicts["W-002"]["actions"]
-    assert verdicts["W-003"]["verdict"] == "probable_network"     # z2 kümesi + yüksek tıkanıklık
-    assert verdicts["W-005"]["verdict"] == "probable_battery"     # tekrar eden sessizlik
-    assert verdicts["W-006"]["verdict"] == "probable_left"        # çıkışa doğru
+    assert verdicts["W-003"]["verdict"] == "probable_network"     # z2 cluster + high congestion
+    assert verdicts["W-005"]["verdict"] == "probable_battery"     # recurring silence
+    assert verdicts["W-006"]["verdict"] == "probable_left"        # heading to the exit
     assert "W-002" in site.qod_sessions and site.state == "emergency"
-    assert site.workers["W-002"].location_retrieved is False      # koordinat henüz alınmadı
+    assert site.workers["W-002"].location_retrieved is False      # coordinate not retrieved yet
     step(site, NOON + timedelta(minutes=4), nac, site.cfg, 35.5)
-    assert site.workers["W-002"].location_retrieved is True       # yalnızca eskalasyon sonrası
+    assert site.workers["W-002"].location_retrieved is True       # only after escalation
     assert sum(1 for e in site.ledger if e["event"] == "location_retrieve") == 1
 
 
@@ -160,7 +160,7 @@ def test_congestion_is_cached_per_micro_zone(site, nac):
     step(site, NOON, nac, site.cfg, 35.5)
     step(site, NOON + timedelta(minutes=2), nac, site.cfg, 35.5)
     r3 = step(site, NOON + timedelta(minutes=4), nac, site.cfg, 35.5)
-    assert not [c for c in r3["calls"] if c["api"] == "congestion-insights"]  # 5 dk önbellek
+    assert not [c for c in r3["calls"] if c["api"] == "congestion-insights"]  # 5 min cache
 
 
 def test_breach_ends_and_query_authority_drops(site, nac):
@@ -181,7 +181,7 @@ def test_sweep_cadence_depends_on_severity(site):
     assert sweep_due(site, NOON + timedelta(minutes=3), site.cfg) is False
 
 
-# ------------------------------------------------------------------ gizlilik / kanıt
+# ------------------------------------------------------------------ privacy / evidence
 def test_worker_dict_never_leaks_raw_phone(site, nac):
     populate(site)
     step(site, NOON, nac, site.cfg, 35.5)
@@ -208,9 +208,9 @@ def test_coverage_reports_badged_but_invisible_workers(site, nac):
     assert cov["badged_in"] == 9 and cov["missing"] == ["W-009"] and cov["coverage_pct"] == 89
 
 
-# ------------------------------------------------------------------ tazelik ekseninde maliyet merdiveni
+# ------------------------------------------------------------------ cost ladder along the freshness axis
 def test_first_verification_accepts_a_cached_answer(site, nac):
-    """Basamak 2: gevşek tazelik. Önbellek cevabı kabul edilir — şebekede ucuz, bir veritabanı okuması."""
+    """Rung 2: loose freshness. A cached answer is accepted — cheap on the network, a database read."""
     populate(site)
     r = step(site, NOON, nac, site.cfg, 34.5)
     verifies = [c for c in r["calls"] if c["api"] == "location-verification"]
@@ -219,7 +219,7 @@ def test_first_verification_accepts_a_cached_answer(site, nac):
 
 
 def test_an_ambiguous_answer_climbs_to_a_fresh_fix(site, nac):
-    """Basamak 3: ucuz cevap belirsiz döndüyse (PARTIAL/UNKNOWN) taze fix istenir — pahalı basamak."""
+    """Rung 3: if the cheap answer came back ambiguous (PARTIAL/UNKNOWN), a fresh fix is requested — costly rung."""
     populate(site)
     step(site, NOON, nac, site.cfg, 34.5)                      # W-009 → PARTIAL
     r2 = step(site, NOON + timedelta(minutes=2), nac, site.cfg, 34.5)
@@ -238,26 +238,26 @@ def test_the_costly_rung_is_recorded_in_the_ledger(site, nac):
     assert any("rung 2" in e["detail"] for e in entries)
 
 
-# ------------------------------------------------------------------ vardiya listesi mutabakatı
+# ------------------------------------------------------------------ shift roster reconciliation
 def test_a_missed_entry_event_does_not_make_a_worker_invisible(site, nac):
-    """Kaçan giriş olayı = görünmez işçi. Mutabakat onu 'durumu bilinmeyen'e çevirir."""
+    """A missed entry event = an invisible worker. Reconciliation turns them into 'status unknown'."""
     populate(site)
     ghost = new_worker("W-099", "+99999910099", name="W-099", micro_zone="z1",
                        first_day_on_site=(T0 - timedelta(days=2)).date().isoformat())
-    site.workers["W-099"] = ghost                              # rozetli, ama HİÇ geofence olayı yok
+    site.workers["W-099"] = ghost                              # badged in, but NO geofence event at all
     assert ghost.last_signal_at is None and ghost.inside is True
 
-    ghost.inside, ghost.cleared = False, True                  # olay kaçtı → sistemde görünmez
+    ghost.inside, ghost.cleared = False, True                  # event missed → invisible in the system
     r = step(site, NOON, nac, site.cfg, 34.5)
 
     assert "W-099" in r["reconciled"]
-    assert ghost.inside is True and ghost.cleared is False     # kuyruğa geri alındı
+    assert ghost.inside is True and ghost.cleared is False     # taken back into the queue
     assert any(e["event"] == "roster_reconciliation" and e["worker_id"] == "W-099" for e in r["ledger_added"])
-    assert "W-099" in site.coverage()["missing"]               # ama kapsama metriği hâlâ dürüst
+    assert "W-099" in site.coverage()["missing"]               # but the coverage metric stays honest
 
 
 def test_reconciliation_does_not_recall_a_worker_with_a_real_exit_event(site, nac):
-    """Gerçek çıkış olayı olan işçi geri çağrılmaz — mutabakat kanıtı ezmez."""
+    """A worker with a real exit event is not recalled — reconciliation does not override evidence."""
     populate(site)
     apply_geofence_event(site, "W-007", "left", T0 + timedelta(minutes=5))
     r = step(site, NOON, nac, site.cfg, 34.5)
@@ -266,61 +266,61 @@ def test_reconciliation_does_not_recall_a_worker_with_a_real_exit_event(site, na
 
 
 def test_reconciliation_runs_at_breach_start_and_then_periodically(site, nac):
-    """Mutabakat her ihlalin başında zorunlu, sonra `reconcile_minutes` aralıklarla."""
+    """Reconciliation is mandatory at the start of every breach, then at `reconcile_minutes` intervals."""
     populate(site)
     r1 = step(site, NOON, nac, site.cfg, 34.5)
     assert site.last_reconcile_at == NOON and "reconciled" in r1
 
-    step(site, NOON + timedelta(minutes=2), nac, site.cfg, 34.5)          # aralık dolmadı
+    step(site, NOON + timedelta(minutes=2), nac, site.cfg, 34.5)          # interval not elapsed
     assert site.last_reconcile_at == NOON
 
     later = NOON + timedelta(minutes=site.cfg.budget.reconcile_minutes + 1)
-    step(site, later, nac, site.cfg, 34.5)                                # aralık doldu
+    step(site, later, nac, site.cfg, 34.5)                                # interval elapsed
     assert site.last_reconcile_at == later
 
 
 def test_a_new_breach_forces_reconciliation_even_inside_the_interval(site, nac):
-    """İhlal bitip yeniden başlarsa aralık beklenmez — her ihlal temiz bir sayfa."""
+    """If the breach ends and starts again, the interval is not awaited — every breach is a clean slate."""
     populate(site)
     step(site, NOON, nac, site.cfg, 34.5)
-    # Yaz yasağı saatinin DIŞINA çık (16:00 Doha) ve eşiğin altına in → ihlal biter
+    # Step OUTSIDE summer ban hours (16:00 Doha) and drop below the threshold → the breach ends
     evening = datetime(2026, 8, 17, 13, 0, tzinfo=UTC)
     step(site, evening, nac, site.cfg, 30.0)
     assert site.breach_started_at is None
 
     again = evening + timedelta(minutes=2)
-    step(site, again, nac, site.cfg, 34.5)                                # yeni ihlal
+    step(site, again, nac, site.cfg, 34.5)                                # new breach
     assert site.last_reconcile_at == again
 
 
-# ------------------------------------------------------------------ ölü WBGT beslemesi
+# ------------------------------------------------------------------ dead WBGT feed
 def test_a_missing_wbgt_reading_is_not_reported_as_no_breach(site, nac):
-    """Ölçüm yoksa eşik DEĞERLENDİRİLEMEZ. 'İhlal yok' demek, ölen bir beslemeyi
-    sessizce güvenlik beyanına çevirir — ürünün ana iddiasının tam istisnası olurdu."""
+    """Without a reading the threshold CANNOT BE ASSESSED. Saying 'no breach' silently turns a dying
+    feed into a safety statement — it would be the exact exception to the product's main claim."""
     populate(site)
-    evening = datetime(2026, 8, 17, 13, 0, tzinfo=UTC)     # yaz yasağı saati DIŞI
-    r = step(site, evening, nac, site.cfg, None)           # hiç WBGT verilmedi
+    evening = datetime(2026, 8, 17, 13, 0, tzinfo=UTC)     # OUTSIDE summer ban hours
+    r = step(site, evening, nac, site.cfg, None)           # no WBGT given at all
     assert r["breached"] is False
     assert r["wbgt_known"] is False and r["level"] == "unknown"
     assert "cannot be assessed" in r["reason"]
     assert "NOT a statement that the site is safe" in r["note"]
     assert any(e["event"] == "wbgt_feed_unusable" for e in r["ledger_added"])
-    assert r["budget"]["spent"] == 0                       # yine de sorgu yetkisi doğmaz
+    assert r["budget"]["spent"] == 0                       # still no query authority arises
 
 
 def test_a_stale_wbgt_reading_is_treated_as_no_reading(site, nac):
     populate(site)
     evening = datetime(2026, 8, 17, 13, 0, tzinfo=UTC)
-    step(site, evening, nac, site.cfg, 30.0)               # taze okuma → durum bilinir
+    step(site, evening, nac, site.cfg, 30.0)               # fresh reading → state is known
     later = evening + timedelta(minutes=site.cfg.budget.wbgt_max_age_minutes + 5)
-    r = step(site, later, nac, site.cfg, None)             # yeni okuma gelmedi
+    r = step(site, later, nac, site.cfg, None)             # no new reading arrived
     assert r["wbgt_stale"] is True and r["wbgt_known"] is False
     assert r["level"] == "unknown" and "stale" in r["reason"]
     assert any(e["event"] == "wbgt_feed_unusable" for e in r["ledger_added"])
 
 
 def test_a_fresh_reading_below_the_limit_is_still_a_real_no_breach(site, nac):
-    """Bayatlık kontrolü 'ihlal yok' hükmünü öldürmemeli — taze ölçüm hâlâ karar verir."""
+    """The staleness check must not kill the 'no breach' verdict — a fresh reading still decides."""
     populate(site)
     evening = datetime(2026, 8, 17, 13, 0, tzinfo=UTC)
     r = step(site, evening, nac, site.cfg, 30.0)
@@ -329,34 +329,34 @@ def test_a_fresh_reading_below_the_limit_is_still_a_real_no_breach(site, nac):
 
 
 def test_the_summer_ban_still_applies_without_any_reading(site, nac):
-    """Yasak saati takvim ve saatle belirlenir — WBGT verisi olmasa da ihlal doğar."""
+    """Ban hours are set by calendar and clock — a breach arises even without WBGT data."""
     populate(site)
-    r = step(site, NOON, nac, site.cfg, None)              # 12:00 Doha, yasak saati
+    r = step(site, NOON, nac, site.cfg, None)              # 12:00 Doha, ban hours
     assert r["breached"] is True and r["ban_breach"] is True
-    assert r["wbgt_known"] is False                        # ölçüm yok ama karar verilebiliyor
+    assert r["wbgt_known"] is False                        # no reading, but a decision can still be made
 
 
-# ------------------------------------------------------------------ mevcudiyet önseli / yabancı hat
+# ------------------------------------------------------------------ presence prior / foreign SIM
 def test_roster_only_worker_joins_the_same_queue_with_a_presence_prior(site, nac):
-    """Ayrı rezerv yok (keyfi bölme). Aynı kuyruk, ama maruziyet olasılıkla ölçülüyor —
-    vardiya listesinde olmak sahada olmak değildir."""
+    """No separate reserve (arbitrary split). Same queue, but exposure is weighted by probability —
+    being on the shift roster is not the same as being on site."""
     populate(site)
     ghost = new_worker("W-099", "+99999910099", name="W-099", micro_zone="z1",
                        first_day_on_site=(T0 - timedelta(days=2)).date().isoformat())
-    ghost.inside, ghost.cleared = False, True        # giriş olayı kaçtı
+    ghost.inside, ghost.cleared = False, True        # entry event missed
     site.workers["W-099"] = ghost
     r = step(site, NOON, nac, site.cfg, 34.5)
 
     assert "W-099" in r["reconciled"]
     assert ghost.presence_prior == site.cfg.budget.presence_prior_roster_only
     ranked = {x["worker_id"]: x for x in r["ranked"]}
-    assert "W-099" in ranked                          # tek kuyrukta, ayrı havuzda değil
+    assert "W-099" in ranked                          # in the single queue, not in a separate pool
     notes = [e for e in ranked["W-099"]["explain"] if e["signal"] == "presence_prior"]
     assert notes and "not the same as" in notes[0]["note"]
 
 
 def test_the_presence_prior_lowers_the_score_without_dropping_the_worker(site, nac):
-    """Önsel skoru düşürür ama işçiyi kuyruktan ATMAZ — bilinmeyen güvende değildir."""
+    """The prior lowers the score but does NOT DROP the worker from the queue — unknown is not safe."""
     from rules import heatshield as R
     base = {"worker_id": "W-1", "masked": "+9745***0001", "last_signal_at": None}
     with_prior = {**base, "presence_prior": 0.5}
@@ -368,8 +368,8 @@ def test_the_presence_prior_lowers_the_score_without_dropping_the_worker(site, n
 
 
 def test_a_worker_on_a_foreign_sim_is_counted_separately_not_as_missing(site, nac):
-    """Dolaşımdaki yabancı hat: sorgular ev operatöründen karşılanır, ona teknik olarak
-    erişemeyiz. Bu işçi 'kayıp' değil, KALICI OLARAK BİLİNMİYOR — ve ayrı sayılır."""
+    """A roaming foreign SIM: queries are served by the home operator, which we technically
+    cannot reach. This worker is not 'missing' but PERMANENTLY UNKNOWN — and is counted separately."""
     populate(site)
     roam = new_worker("W-088", "+99999910088", name="W-088", micro_zone="z1")
     roam.reachable_via_operator = False
@@ -379,15 +379,15 @@ def test_a_worker_on_a_foreign_sim_is_counted_separately_not_as_missing(site, na
     r = step(site, NOON, nac, site.cfg, 34.5)
     cov = site.coverage()
     assert "W-088" in cov["permanently_unreachable"]
-    assert "W-088" not in cov["missing"]               # "bulamadık" ile "hiç bakamayız" ayrı
+    assert "W-088" not in cov["missing"]               # "we could not find" and "we can never look" are separate
     assert cov["permanently_unreachable_pct"] > 0
-    assert "W-088" not in r["reconciled"]              # boşa bütçe harcanmıyor
+    assert "W-088" not in r["reconciled"]              # no budget wasted
 
 
-# ------------------------------------------------------------------ canlılık probu
+# ------------------------------------------------------------------ liveness probe
 def test_a_fresh_fix_overrules_a_stale_unreachable_reading(site, nac):
-    """device-status şebekenin TUTTUĞU durumu okur ve bir saate kadar bayat olabilir.
-    Sıkı tazelikli konum sorgusu cihazı sayfalar; cevap gelirse bayılma DEĞİLDİR."""
+    """device-status reads the state the network HOLDS and can be up to an hour stale.
+    A strict-freshness location query pages the device; if it answers, it is NOT a collapse."""
     populate(site)
     alive = new_worker("W-013", "+99999910013", name="W-013", micro_zone="z1",
                        device_history={"continuous_reachable_hours": 7},
@@ -398,8 +398,8 @@ def test_a_fresh_fix_overrules_a_stale_unreachable_reading(site, nac):
     step(site, NOON, nac, site.cfg, 35.5)
     r2 = step(site, NOON + timedelta(minutes=2), nac, site.cfg, 35.5)
 
-    assert alive.verdict is None and alive.escalated is False   # sağlıkçı boşuna çağrılmadı
-    assert alive.reachable is True                              # bayat okuma geçersiz kılındı
+    assert alive.verdict is None and alive.escalated is False   # the medic was not called for nothing
+    assert alive.reachable is True                              # the stale reading was overruled
     assert any(e["event"] == "liveness_confirmed" and e["worker_id"] == "W-013"
                for e in r2["ledger_added"])
     probe = [c for c in r2["calls"] if c.get("pool") == "liveness" and c["worker_id"] == "W-013"]
@@ -407,21 +407,21 @@ def test_a_fresh_fix_overrules_a_stale_unreachable_reading(site, nac):
 
 
 def test_a_device_that_cannot_produce_a_fresh_fix_is_not_counted_as_alive(site, nac):
-    """Kapalı cihaz sayfalamaya cevap veremez → taze konum da üretemez. Prob 'canlı' demez."""
+    """A switched-off device cannot answer paging → it cannot produce a fresh fix either. Probe won't say 'alive'."""
     populate(site)
     step(site, NOON, nac, site.cfg, 35.5)
     r2 = step(site, NOON + timedelta(minutes=2), nac, site.cfg, 35.5)
     w2 = site.workers["W-002"]
-    assert w2.verdict == "probable_collapse"                    # hüküm ayakta kaldı
-    # Olay ADINA degil DAVRANISA baglaniyoruz: prob hangi gerekcyle olursa olsun
-    # "canli" DEMEMELI (liveness_unknown / liveness_inconclusive ikisi de kabul).
+    assert w2.verdict == "probable_collapse"                    # the verdict stood
+    # We bind to BEHAVIOUR, not to the event NAME: whatever the reason, the probe
+    # MUST NOT say "alive" (liveness_unknown / liveness_inconclusive are both accepted).
     probe_events = {e["event"] for e in r2["ledger_added"] if e.get("worker_id") == "W-002"}
     assert probe_events & {"liveness_unknown", "liveness_inconclusive"}
     assert "liveness_confirmed" not in probe_events
 
 
 def test_the_liveness_probe_is_recorded_as_a_query(site, nac):
-    """Prob bedava değil — bütçeden harcanır ve defterde görünür."""
+    """The probe is not free — it is spent from the budget and shows up in the ledger."""
     populate(site)
     step(site, NOON, nac, site.cfg, 35.5)
     before = site.queries_total
@@ -432,39 +432,39 @@ def test_the_liveness_probe_is_recorded_as_a_query(site, nac):
 
 
 def test_a_dead_wbgt_feed_does_not_close_an_open_collapse_case(site, nac):
-    """Beslemenin ölmesi ihlalin bitmesi DEĞİLDİR.
+    """The feed dying is NOT the breach ending.
 
-    Eskiden bayat besleme "ihlal bitti" yoluna girip tüm işçi durumunu siliyordu: sağlıkçı
-    çağrılmış açık bir bayılma vakası, yalnızca meteoroloji verisi sustuğu için sessizce
-    kapanıyor ve defter "Breach over" yazıyordu."""
+    Previously a stale feed took the "breach over" path and wiped all worker state: an open
+    collapse case with a medic already called was silently closed just because the weather
+    data went quiet, and the ledger wrote "Breach over"."""
     populate(site)
     step(site, NOON, nac, site.cfg, 35.5)
     step(site, NOON + timedelta(minutes=2), nac, site.cfg, 35.5)
     w2 = site.workers["W-002"]
-    assert w2.escalated is True and w2.verdict == "probable_collapse"   # vaka açık
+    assert w2.escalated is True and w2.verdict == "probable_collapse"   # case open
     open_qod = dict(site.qod_sessions)
 
-    # Yaz yasağı saatinin DIŞINA çık (16:00 Doha) ve yeni ölçüm gönderme: son okuma NOON+2'de
-    # kalmıştı, yani artık fazlasıyla bayat. Besleme öldü — ama vaka hâlâ açık.
+    # Step OUTSIDE summer ban hours (16:00 Doha) and send no new reading: the last reading was
+    # at NOON+2, so it is now well past stale. The feed died — but the case is still open.
     stale_at = datetime(2026, 8, 17, 13, 0, tzinfo=UTC)
     r = step(site, stale_at, nac, site.cfg, None)
 
     assert r["wbgt_known"] is False and r["breached"] is False
-    assert site.workers["W-002"].escalated is True                      # vaka KAPANMADI
+    assert site.workers["W-002"].escalated is True                      # case NOT closed
     assert site.workers["W-002"].verdict == "probable_collapse"
-    assert site.breach_started_at is not None                           # ihlal "bitti" sayılmadı
-    assert site.qod_sessions == open_qod or site.qod_sessions           # açık kanal duruyor
+    assert site.breach_started_at is not None                           # breach not counted as "over"
+    assert site.qod_sessions == open_qod or site.qod_sessions           # the open channel remains
     events = {e["event"] for e in r["ledger_added"]}
     assert "wbgt_feed_unusable" in events
     assert "site_cleared" not in events, "besleme öldü diye 'Breach over' yazılmamalı"
     assert "open cases are NOT closed" in r["note"]
 
 
-# ------------------------------------------------------------------ _trusted(): ürünün ANA İDDİASI
-# Bir mutasyon denetimi ölçtü: `_trusted()` hep True yapıldığında SIFIR test düştü.
-# "Hata asla 'güvende' hükmü üretmez" cümlesi kodda hiç sınanmıyordu. Aşağıdakiler onu kilitler.
+# ------------------------------------------------------------------ _trusted(): the product's MAIN CLAIM
+# A mutation audit measured it: with `_trusted()` forced to always True, ZERO tests failed.
+# The sentence "A failure never produces a 'safe' verdict" was never tested in code. The tests below lock it.
 def _failing_client(fx, api_to_fail):
-    """Birincil çağrısı düşen, ama fixture yedeği olan bir istemci taklidi."""
+    """A fake client whose primary call fails but which has a fixture fallback."""
     from nac_client import NacError
     real = NacClient(NacConfig(mode="fixture"), fixtures=fx)
 
@@ -484,10 +484,10 @@ def _failing_client(fx, api_to_fail):
 
 
 def test_a_fallback_answer_never_clears_a_worker(site, monkeypatch):
-    """Yedeğe düşmüş bir FALSE cevabı işçiyi kuyruktan DÜŞÜREMEZ.
+    """A FALSE answer that came from the fallback CANNOT DROP the worker from the queue.
 
-    Yedek açıkken fixture 'bölge dışında' der; bu uydurma bir cevaptır. Onu gerçek sayıp
-    işçiyi temizlemek, çöken bir API'yi sessizce güvenlik beyanına çevirmek olurdu."""
+    With the fallback on, the fixture says 'outside the zone'; that is a made-up answer. Treating it as real
+    and clearing the worker would silently turn a crashing API into a safety statement."""
     monkeypatch.setenv("NAC_FALLBACK_TO_FIXTURE", "1")
     from api.common import NacFacade
 
@@ -498,8 +498,8 @@ def test_a_fallback_answer_never_clears_a_worker(site, monkeypatch):
     populate(site)
     r = step(site, NOON, nac=facade, cfg=site.cfg, wbgt_c=34.5)
 
-    # W-007 fixture'da saha DIŞINDA → yedek FALSE döner. Güvenilmez kaynak olduğu için
-    # bu cevap işçiyi temizlememeli.
+    # W-007 is OFF site in the fixture → the fallback returns FALSE. Because it is an untrusted source,
+    # this answer must not clear the worker.
     w7 = site.workers["W-007"]
     assert w7.cleared is False, "yedeğe düşmüş bir cevap işçiyi kuyruktan düşüremez"
     assert w7.verified_inside is None
@@ -509,7 +509,7 @@ def test_a_fallback_answer_never_clears_a_worker(site, monkeypatch):
 
 
 def test_a_fallback_answer_never_makes_a_device_reachable(site, monkeypatch):
-    """Aynı kural erişilebilirlik için de geçerli: uydurma bir 'reachable' bayılmayı gizler."""
+    """The same rule applies to reachability: a made-up 'reachable' hides a collapse."""
     monkeypatch.setenv("NAC_FALLBACK_TO_FIXTURE", "1")
     from api.common import NacFacade
 
@@ -525,8 +525,8 @@ def test_a_fallback_answer_never_makes_a_device_reachable(site, monkeypatch):
         assert any(e["event"] == "untrusted_signal" for e in r2["ledger_added"])
 
 
-# ------------------------------------------------------------------ canlılık probu tazelik dalı
-# Aynı denetim: `fresh` kontrolü hep True yapıldığında da SIFIR test düştü — ölü koddu.
+# ------------------------------------------------------------------ liveness probe freshness branch
+# Same audit: with the `fresh` check forced to always True, ZERO tests failed as well — it was dead code.
 def _probe_stub(result, ts_iso):
     from nac_client.client import NacResult
 
@@ -538,8 +538,8 @@ def _probe_stub(result, ts_iso):
 
 
 @pytest.mark.parametrize("label,result,minutes_ago", [
-    ("bayat damga", "TRUE", 40),        # 40 dk önce: şebeke taze fix ÜRETMEMİŞ
-    ("belirsiz cevap", "UNKNOWN", 0),   # UNKNOWN ana yolda da güvenilir sinyal değil
+    ("bayat damga", "TRUE", 40),        # 40 min ago: the network did NOT produce a fresh fix
+    ("belirsiz cevap", "UNKNOWN", 0),   # UNKNOWN is not a trusted signal on the main path either
 ])
 def test_liveness_probe_refuses_weak_evidence(site, label, result, minutes_ago):
     from agent import policy as P
@@ -551,10 +551,10 @@ def test_liveness_probe_refuses_weak_evidence(site, label, result, minutes_ago):
 
 
 def test_liveness_probe_refuses_a_future_timestamp(site):
-    """Gelecekten gelen konum bir saat tutarsızlığıdır, canlılık kanıtı değil.
+    """A location from the future is a clock inconsistency, not evidence of liveness.
 
-    Eskiden negatif yaş sıfıra kırpılıyordu; bu, tazelik eşiğini tamamen etkisiz kılıp
-    0.95 güvenli bir bayılma hükmünü siliyordu."""
+    Previously a negative age was clamped to zero; this made the freshness threshold completely
+    ineffective and erased a collapse verdict held with 0.95 confidence."""
     from agent import policy as P
     w = new_worker("W-1", "+99999910001", name="W-1")
     site.workers["W-1"] = w
@@ -572,9 +572,9 @@ def test_liveness_probe_accepts_a_genuinely_fresh_answer(site):
     assert any(e["event"] == "liveness_confirmed" for e in site.ledger)
 
 
-# ------------------------------------------------------------------ defter dürüstlüğü ve sınırı
+# ------------------------------------------------------------------ ledger honesty and its bound
 def test_the_ledger_reports_what_it_actually_holds(site, nac):
-    """"Konum geçmişi tutulmaz" iddiası YANLIŞTI. Defter bir varlık kaydıdır — gizlemiyoruz, sayıyoruz."""
+    """"No location history is kept" was a FALSE claim. The ledger is a presence record — we count, not hide."""
     populate(site)
     r = step(site, NOON, nac, site.cfg, 35.5)
     pr = r["presence_record"]
@@ -585,7 +585,7 @@ def test_the_ledger_reports_what_it_actually_holds(site, nac):
 
 
 def test_the_ledger_is_bounded_and_counts_what_it_drops(site, nac):
-    """8 saatlik vardiya 400 işçide 7.341 satır üretiyor (ölçüldü). Tavan var ve düşen sayılıyor."""
+    """An 8-hour shift with 400 workers produces 7,341 rows (measured). There is a cap and drops are counted."""
     populate(site)
     cfg = Config()
     object.__setattr__(cfg.budget, "ledger_max_entries", 20)
@@ -597,7 +597,7 @@ def test_the_ledger_is_bounded_and_counts_what_it_drops(site, nac):
     assert site.presence_record()["ledger_pruned"] == site.ledger_pruned
 
 
-# ------------------------------------------------------------------ defter bütünlüğü
+# ------------------------------------------------------------------ ledger integrity
 def test_ledger_seq_stays_unique_after_pruning(site, nac):
     populate(site)
     cfg = Config()
@@ -606,7 +606,7 @@ def test_ledger_seq_stays_unique_after_pruning(site, nac):
     seen: dict[int, tuple] = {}
     for k in range(6):
         step(site, NOON + timedelta(minutes=2 * k), nac, cfg, 35.5)
-        for e in site.ledger:           # aynı numara, zaman içinde hep AYNI satırı göstermeli
+        for e in site.ledger:           # the same number must always point to the SAME row over time
             assert seen.setdefault(e["seq"], (e["t"], e["event"], e["detail"])) == (e["t"], e["event"], e["detail"])
     assert site.ledger_pruned > 0
     assert site.ledger[-1]["seq"] == site.ledger_pruned + len(site.ledger)
@@ -626,14 +626,14 @@ def test_sweep_report_lists_this_sweeps_rows_even_after_pruning(site, nac):
 
 
 def test_breach_started_row_is_part_of_the_sweep_report(site, nac):
-    """Tetikleyici damgası rapordaki satırlara vurulur; ihlalin başladığı satır dışarıda kalmamalı."""
+    """The trigger stamp is applied to the report rows; the row where the breach started must not be left out."""
     populate(site)
     r = step(site, NOON, nac, site.cfg, 35.5)
     assert any(e["event"] == "breach_started" for e in r["ledger_added"])
 
 
 def test_missing_coordinate_is_not_stored_as_zero_zero(site, nac):
-    """Konum servisi merkez döndürmezse defter (0, 0) gibi sahte bir koordinat yazmamalı."""
+    """If the location service returns no centre, the ledger must not write a fake coordinate like (0, 0)."""
     from nac_client.client import NacResult
 
     class NoCentre(Facade):
@@ -652,18 +652,18 @@ def test_missing_coordinate_is_not_stored_as_zero_zero(site, nac):
     assert site.presence_record()["coordinates_stored"] == 0
 
 
-# ------------------------------------------------------------------ geofence sırası
+# ------------------------------------------------------------------ geofence ordering
 def test_a_late_stale_exit_does_not_override_a_newer_entry(site):
     populate(site, count=1)
     apply_geofence_event(site, "W-001", "enter", T0 + timedelta(hours=1))
-    entry = apply_geofence_event(site, "W-001", "exit", T0 + timedelta(minutes=30))   # geç teslim edildi
+    entry = apply_geofence_event(site, "W-001", "exit", T0 + timedelta(minutes=30))   # delivered late
     w = site.workers["W-001"]
     assert w.inside is True and w.exited_at is None
     assert entry["event"] == "geofence_out_of_order"
 
 
 def test_the_budget_report_separates_planned_queries_from_distress_calls(site, nac):
-    """Canlılık, tıkanıklık ve QoD çağrıları planın dışında. Toplamı gizlemiyoruz; ayrıştırıyoruz."""
+    """Liveness, congestion and QoD calls are outside the plan. We do not hide the total; we break it down."""
     populate(site)
     step(site, NOON, nac, site.cfg, 35.5)
     r = step(site, NOON + timedelta(minutes=2), nac, site.cfg, 35.5)

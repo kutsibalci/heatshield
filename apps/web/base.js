@@ -6,7 +6,7 @@ async function api(path, body, method) {
   return j;
 }
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-// Kanit degeri: nesneyse `anahtar=deger` ciftleri (JSON'daki tirnaklar juriye gurultu; bosluksuz JSON satir kiramiyordu)
+// Evidence value: if it's an object, `key=value` pairs (JSON quotes are noise to the jury; space-free JSON couldn't wrap lines)
 function fmtValue(v) {
   if (v === null || v === undefined) return '—';
   if (Array.isArray(v)) return v.map(fmtValue).join(', ');

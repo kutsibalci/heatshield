@@ -1,18 +1,21 @@
-"""HeatShield API — şantiyede sıcak çarpması koruması. "Şebeke sensördür; işçi hiçbir şey yapmaz."
+"""HeatShield API — heat-stroke protection on construction sites.
+"The network is the sensor; the worker does nothing."
 
-Ajan döngüsü (idea capture §5.2):
-  pasif izleme (ücretsiz geofence olayları) → yasal eşik ihlali → doğrulama bütçesiyle sıralı sorgu →
-  bayılma/ağ/pil/çıkış ayrımı → sağlıkçı bildirimi + garantili bant genişliği (QoD).
+Agent loop (idea capture §5.2):
+  passive monitoring (free geofence events) → legal threshold breach →
+  ranked queries under a verification budget →
+  collapse / network / battery / exit discrimination → medic notification + guaranteed bandwidth (QoD).
 
-Ürünün zor kısmı hangi API'nin çağrılacağı değil, **kimin sorgulanacağına karar vermek**:
-`packages/agent/policy.py` içindeki tarama motoru, `packages/rules` içindeki saf fonksiyonlarla
-her taramada bütçeyi risk sırasına göre harcar ve harcamadıklarını da rapor eder.
+The hard part of the product is not which API to call but **deciding whom to query**:
+the sweep engine in `packages/agent/policy.py`, using the pure functions in `packages/rules`,
+spends the budget in risk order on every sweep and also reports whom it did not spend it on.
 
-Gizlilik / hukuki dayanak (idea capture §10):
-- İhlal yoksa **sorgu yetkisi yoktur** — sistem sessiz bir üretkenlik gözetimi aracına dönüşemez.
-- Varsayılan sorgu "bölge içinde mi?" hükmüdür (koordinat değil). Koordinat yalnızca olası bayılma
-  vakasında, bir kez alınır ve deftere kaba özet olarak yazılır.
-- Ham telefon numarası hiçbir yanıtta yer almaz (maske + hash); loglar `MaskingFilter` ile maskelenir.
+Privacy / legal basis (idea capture §10):
+- Without a breach there is **no authority to query** — the system cannot turn into a silent
+  productivity-surveillance tool.
+- The default query is an "inside the zone?" verdict (not a coordinate). A coordinate is taken only in a probable
+  collapse case, only once, and is written to the ledger as a coarse summary.
+- A raw phone number never appears in any response (mask + hash); logs are masked by `MaskingFilter`.
 """
 from __future__ import annotations
 
@@ -40,7 +43,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
-from .common import ROOT, NacFacade, _mask_deep, build_nac, mount_common  # noqa: E402  (sys.path'i de ayarlar)
+from .common import ROOT, NacFacade, _mask_deep, build_nac, mount_common  # noqa: E402  (also sets up sys.path)
 from nac_client import NacError, mask_phone  # noqa: E402
 from nac_client.client import NacResult  # noqa: E402
 from nac_client.privacy import hash_phone, normalize_phone  # noqa: E402
@@ -53,23 +56,23 @@ PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:8000")
 
 
 def _secret(name: str) -> tuple[str, bool]:
-    """Ortamdaki sır; yoksa süreç başına rastgele bir değer. (değer, ortamdan mı geldi)"""
+    """The secret from the environment; otherwise a random per-process value. (value, came from env?)"""
     v = (os.environ.get(name) or "").strip()
     return (v, True) if v else (secrets.token_urlsafe(32), False)
 
 
-# SIRLARIN DEPODA VARSAYILANI YOK. Eskiden sabit bir geliştirme token'ı yazılıydı: depoyu okuyan herkes
-# webhook'a sahte giriş/çıkış olayı gönderebilir ve kanıt defterini silebilirdi.
-#   HS_API_TOKEN   yönetici: saha/işçi/WBGT/tarama/sıfırlama ve kişisel veri okuma
-#   WEBHOOK_TOKEN  yalnızca operatörün geofence bildirimleri (aboneliğe sinkCredential olarak verilir)
+# SECRETS HAVE NO DEFAULT IN THE REPO. Previously a fixed development token was written here: anyone reading the repo
+# could send fake enter/exit events to the webhook and wipe the evidence ledger.
+#   HS_API_TOKEN   admin: site/worker/WBGT/sweep/reset and reading personal data
+#   WEBHOOK_TOKEN  only the operator's geofence notifications (given to the subscription as sinkCredential)
 API_TOKEN, _API_TOKEN_FROM_ENV = _secret("HS_API_TOKEN")
 WEBHOOK_TOKEN, _ = _secret("WEBHOOK_TOKEN")
 PRODUCTION_SECRETS = ("HS_API_TOKEN", "WEBHOOK_TOKEN", "PHONE_HASH_SALT")
 
 
 def missing_production_secrets(mode: str, environ) -> list[str]:
-    """Canlı operatöre bağlanan bir kopya rastgele sırla AÇILMAZ: yeniden başlatmada hash'ler ve
-    abonelik anahtarı değişir, kanıt defterinin eşleşmesi kopar."""
+    """An instance connected to the live operator does NOT START with random secrets: on restart the hashes and
+    the subscription key would change and the evidence ledger would no longer match up."""
     if mode != "live":
         return []
     return [k for k in PRODUCTION_SECRETS if not (environ.get(k) or "").strip()]
@@ -78,7 +81,7 @@ def missing_production_secrets(mode: str, environ) -> list[str]:
 def _bearer_ok(authorization: str | None, token: str) -> bool:
     if not token or not authorization or not authorization.startswith("Bearer "):
         return False
-    return hmac.compare_digest(authorization[7:].encode(), token.encode())   # sabit zamanlı
+    return hmac.compare_digest(authorization[7:].encode(), token.encode())   # constant-time
 
 
 def _demo_mode() -> bool:
@@ -92,16 +95,17 @@ def require_api_token(authorization: Optional[str] = Header(None)) -> None:
 
 
 def require_read_access(authorization: Optional[str] = Header(None)) -> None:
-    """Kişisel veri (ad, ekip, uyruk, kanıt defteri) token ister. Demo modunda veri kurgusaldır ve açık kalır."""
+    """Personal data (name, crew, nationality, evidence ledger) requires the token.
+    In demo mode the data is fictional and stays open."""
     if not _demo_mode():
         require_api_token(authorization)
 
 
 class RateLimiter:
-    """İstemci (IP) başına pencere içinde en fazla `limit` istek; bellek `max_clients` ile sınırlı.
+    """At most `limit` requests per client (IP) within the window; memory is bounded by `max_clients`.
 
-    `limit` None ise her istekte `HS_DEMO_RATE_PER_MIN` okunur (varsayılan 20, 0 = sınırsız).
-    Bir proxy arkasında gerçek IP için uvicorn'a `FORWARDED_ALLOW_IPS` verilmelidir (render.yaml).
+    If `limit` is None, `HS_DEMO_RATE_PER_MIN` is read on every request (default 20, 0 = unlimited).
+    Behind a proxy, uvicorn must be given `FORWARDED_ALLOW_IPS` to see the real IP (render.yaml).
     """
 
     def __init__(self, window_s: float = 60.0, max_clients: int = 10_000) -> None:
@@ -114,7 +118,7 @@ class RateLimiter:
         self._hits: OrderedDict[str, deque] = OrderedDict()
 
     def hit(self, key: str) -> int:
-        """İzin varsa 0, yoksa kaç saniye sonra tekrar denenebileceği."""
+        """0 if allowed; otherwise how many seconds until it may be retried."""
         limit = self.limit if self.limit is not None else int(os.environ.get("HS_DEMO_RATE_PER_MIN") or 20)
         if limit <= 0:
             return 0
@@ -136,8 +140,8 @@ DEMO_LIMITER = RateLimiter()
 
 
 def require_demo_mode(request: Request) -> None:
-    """Demo senaryoları mağazayı SIFIRLAR ve paylaşılan istemciye hata enjekte eder. Bu yüzden
-    yalnızca açıkça demo için açılmış, canlı operatöre bağlı olmayan bir kopyada çalışırlar."""
+    """Demo scenarios RESET the store and inject faults into the shared client. So they only run
+    on an instance explicitly enabled for demos and not connected to the live operator."""
     if not _demo_mode():
         raise HTTPException(404, {"code": "NOT_FOUND",
                                   "message": "demo scenarios are off; set HS_DEMO_MODE=1 on a fixture or simulator instance"})
@@ -150,36 +154,36 @@ def require_demo_mode(request: Request) -> None:
                             headers={"Retry-After": str(retry)})
 
 
-# Anonim olusturma tavanlari: herkese acik kopya 512 MB; isci basina ~5,3 KB olculdu (denetim D).
-# Demo senaryolari bu tavana tabi degil — kendi sahalarini sifirdan kurup magazayi temizliyorlar.
+# Anonymous creation caps: the public instance has 512 MB; ~5.3 KB per worker was measured (audit D).
+# Demo scenarios are not subject to this cap — they build their own site from scratch and clear the store.
 MAX_SITES = int(os.environ.get("HS_MAX_SITES") or 50)
 MAX_WORKERS_PER_SITE = int(os.environ.get("HS_MAX_WORKERS_PER_SITE") or 500)
-# Webhook tekilleme penceresi: en eski kimlik dusurulur (FIFO). Eskiden pencere dolunca kume
-# TAMAMEN siliniyordu — o an tekrar gonderilen her olay yeniden uygulanirdi.
+# Webhook dedupe window: the oldest ID is dropped (FIFO). Previously, when the window filled up, the set was
+# wiped ENTIRELY — any event redelivered at that moment was applied again.
 DEDUPE_WINDOW = 10_000
 CFG = Config.from_env()
 
-# Demo sahası ve vardiya listesi VERİDİR, kod değil: fixtures/roster.json. Orada 13 adlandırılmış
-# senaryo işçisi (davranışları donmuş) ve 227 kişilik kalabalık var — toplam 240, gerçek bir Katar
-# mega-proje şantiyesinin ölçeği. Şebeke tarafı taklidi fixtures/profiles.json'da; koordinatlar
-# gerçek Lusail Marina District'tir (kaynaklar roster.json `_sources` içinde).
+# The demo site and roster are DATA, not code: fixtures/roster.json. It holds 13 named
+# scenario workers (their behaviour frozen) and a crowd of 227 — 240 in total, the scale of a real Qatari
+# mega-project site. The network-side mock is in fixtures/profiles.json; the coordinates are
+# the real Lusail Marina District (sources in roster.json `_sources`).
 ROSTER = json.loads((ROOT / "fixtures" / "roster.json").read_text(encoding="utf-8"))
 SITE = {"lat": ROSTER["site"]["lat"], "lng": ROSTER["site"]["lng"], "radius_m": ROSTER["site"]["radius_m"]}
 SITE_NAME = ROSTER["site"]["name"]
 ZONES = ROSTER["zones"]
-# (worker_id, phone, spec) — `for _, phone, *_ in NAMED` kullanan çağrı yerleri korunur.
+# (worker_id, phone, spec) — call sites using `for _, phone, *_ in NAMED` keep working.
 NAMED = [(w["worker_id"], w["phone"], w) for w in ROSTER["named"]]
 CROWD = ROSTER["crowd"]
-# Yasak saati rotasyonu (bkz. `_ban_hour_rotation`) — vardiya listesi üç duruma ayrılır:
-#   rest_rotation        10:00'da çeperden çıkar, 10:15'te gölgelikli dinlenme alanına geri girer.
-#                        İki ÜCRETSİZ geofence olayı; şebeke "içeride" dediği için bayatlıkları
-#                        sıfırdır ve kuyruğun en altına düşerler. Kuyruktan DÜŞMEZLER.
-#   welfare_compound     yasak penceresinin tamamını çeperin DIŞINDAKİ refah kampında geçirir
-#                        (sahanın kendi sıcak stresi politikası: iklime alışmamış ve sıcak olayı
-#                        kaydı olan ekip). Çıkış olayı var → "presumed safe" → %10 rezervle
-#                        yeniden kontrol edilir, çünkü bayat bir çıkış olayı sessiz bir hata modudur.
-#   unseen_since_morning sabah girişinden sonra şebekeden tek sinyal gelmemiş işçiler — bütçenin
-#                        gerçekten harcandığı grup.
+# Ban-hour rotation (see `_ban_hour_rotation`) — the roster splits into three states:
+#   rest_rotation        leaves the perimeter at 10:00, re-enters at the shaded rest area at 10:15.
+#                        Two FREE geofence events; because the network says "inside", their staleness
+#                        is zero and they drop to the bottom of the queue. They do NOT drop OUT of the queue.
+#   welfare_compound     spends the whole ban window in the welfare compound OUTSIDE the perimeter
+#                        (the site's own heat-stress policy: the unacclimatised crew and those with a
+#                        heat-incident record). There is an exit event → "presumed safe" → re-checked
+#                        from the 10% reserve, because a stale exit event is a silent failure mode.
+#   unseen_since_morning workers with not a single network signal since the morning entry — the group
+#                        the budget is really spent on.
 ROTATION_IDS = frozenset(c["worker_id"] for c in CROWD if c.get("status") == "rest_rotation")
 WELFARE_IDS = frozenset(c["worker_id"] for c in CROWD if c.get("status") == "welfare_compound")
 
@@ -188,17 +192,17 @@ GEO_LEFT = "org.camaraproject.geofencing-subscriptions.v0.area-left"
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Uygulamanın ömrü = ajanın ömrü: zamanlayıcı burada başlar, burada durur.
+    """The app's lifetime = the agent's lifetime: the scheduler starts here and stops here.
 
-    `on_event("startup")` yerine `lifespan`: kapanışta görevi iptal etmenin garantili tek yeri
-    burasıdır (on_event'te shutdown'da asılı kalan bir görev kalıyordu).
+    `lifespan` instead of `on_event("startup")`: this is the only guaranteed place to cancel the task
+    on shutdown (with on_event a task was left hanging at shutdown).
     """
     mode = getattr(nac.cfg, "mode", "fixture")
     missing = missing_production_secrets(mode, os.environ)
     if missing:
         raise RuntimeError(f"NAC_MODE=live needs {', '.join(missing)} — refusing to start with generated secrets")
     if not _API_TOKEN_FROM_ENV:
-        # Yerel geliştirme kolaylığı: token üretildi ve bir kez yazılır. Canlı modda buraya gelinmez.
+        # Local development convenience: a token was generated and is printed once. Live mode never gets here.
         log.warning("HS_API_TOKEN is not set; writes need this process-only token: %s", API_TOKEN)
     scheduler.start()
     try:
@@ -209,16 +213,16 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="HeatShield — Heat-Stroke Protection on Construction Sites", version="0.1", lifespan=lifespan)
 
-# Konsol dış kaynak kullanmaz; satır içi betik/stil var (derleme adımı yok). CORS başlığı verilmez:
-# tarayıcılar başka kökenden okumayı engeller. /docs ve /redoc Swagger'ı CDN'den yüklediği için CSP dışında.
+# The console uses no external resources; it has inline script/style (no build step). No CORS header is sent:
+# browsers block cross-origin reads. /docs and /redoc are outside the CSP because they load Swagger from a CDN.
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(_request: Request, exc: RequestValidationError):
-    """422 yanıtı gönderilen değeri GERİ YANSITMAZ: (1) NaN/sonsuz JSON'a yazılamıyor ve yanıt 500'e
-    dönüyordu, (2) hatalı bir işçi kaydının adı/numarası yanıtta ve loglarda dolaşmasın."""
+    """The 422 response does NOT ECHO the submitted value: (1) NaN/infinity cannot be written to JSON and the response
+    turned into a 500, (2) a malformed worker record's name/number must not circulate in responses and logs."""
     errors = [{k: v for k, v in e.items() if k in ("type", "loc", "msg")} for e in exc.errors()]
     return JSONResponse(status_code=422, content={"detail": errors})
 
@@ -236,23 +240,24 @@ nac = build_nac()
 mount_common(app, nac, Path(__file__).resolve().parents[1] / "web", debug_dependencies=[Depends(require_read_access)])
 
 
-# ============================================================================ güvenli facade
+# ============================================================================ safe facade
 class SafeFacade(NacFacade):
-    """Nokia çağrısı düşerse tarama çökmez: sinyal 'bilinmiyor' olur, kaynak `error(<kind>)` yazılır."""
+    """If a Nokia call fails the sweep does not crash: the signal becomes 'unknown',
+    the source reads `error(<kind>)`."""
 
     def call(self, name: str, *args, **kwargs):
         try:
             return super().call(name, *args, **kwargs)
         except NacError as e:
             log.warning("nac degraded api=%s kind=%s", name, e.kind)
-            # Operatorun 4xx/5xx govdesinin ilk 200 karakteri `NacError.message` icine giriyor ve
-            # buradan `/v1/state`e yayiliyordu — maskesiz. Log yolu `MaskingFilter` ile kapaliydi
-            # ama bu yol logdan degil YANITTAN geciyor.
+            # The first 200 characters of the operator's 4xx/5xx body go into `NacError.message` and
+            # from there spread to `/v1/state` — unmasked. The log path was covered by `MaskingFilter`,
+            # but this path goes through the RESPONSE, not the log.
             store.record_degraded(_mask_deep({"t": _iso(_now()), "call": name, **e.to_dict()}))
             return NacResult(api=name, data={}, source=f"error({e.kind})", latency_ms=0, correlator=str(uuid.uuid4()))
 
 
-# ============================================================================ yardımcılar
+# ============================================================================ helpers
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -270,18 +275,18 @@ def _iso(dt: datetime | None) -> str | None:
 
 # ============================================================================ store
 class Store:
-    """Uygulama durumu. Kilit düzeni:
+    """Application state. Lock discipline:
 
-    - `store.lock` mağazanın YAPISINI korur (sites, subs, phone_index, tekilleme) ve demo senaryolarını
-      birbirinden ayırır. Kısa tutulur; demo dışında operatör çağrısı sırasında TUTULMAZ.
-    - `site.lock` bir sahanın durumunu korur (tarama, işçi ekleme, olay, WBGT).
-    - Sıra: site.lock → store.lock olabilir, tersi ASLA. Böylece kilitlenme (deadlock) olamaz.
-    - Okuyanlar kilit tutmaz: kaplar yerinde değiştirilmez, kopyalanıp yeniden atanır.
+    - `store.lock` protects the store's STRUCTURE (sites, subs, phone_index, dedupe) and keeps demo scenarios
+      apart from each other. It is held briefly; outside demos it is NOT held during an operator call.
+    - `site.lock` protects one site's state (sweep, adding workers, events, WBGT).
+    - Order: site.lock → store.lock is allowed, the reverse NEVER. So a deadlock cannot occur.
+    - Readers hold no lock: containers are not mutated in place; they are copied and reassigned.
     """
 
     def __init__(self) -> None:
-        # Kilit BİR KEZ oluşturulur. `reset()` içinde yeniden yaratıldığında eski kilidi bekleyenler
-        # ile yenisini alanlar aynı anda yazıyordu.
+        # The lock is created ONCE. When it was recreated inside `reset()`, those waiting on the old lock
+        # and those taking the new one were writing at the same time.
         self.lock = threading.RLock()
         self._degraded_lock = threading.Lock()
         self.reset()
@@ -294,11 +299,11 @@ class Store:
         self.degraded: tuple[dict, ...] = ()
 
     def record_degraded(self, item: dict) -> None:
-        with self._degraded_lock:                # sınırlı: /v1/state son 10'unu gösterir
+        with self._degraded_lock:                # bounded: /v1/state shows the last 10
             self.degraded = (*self.degraded, item)[-200:]
 
     def site_or_404(self, sid: str) -> SiteRuntime:
-        # Kısa bir `store.lock`: demo kendi sahasını kurarken dışarıdan ona yazılamasın.
+        # A brief `store.lock`: nobody outside may write to a demo's site while the demo is building it.
         with self.lock:
             s = self.sites.get(sid)
         if not s:
@@ -310,13 +315,13 @@ store = Store()
 facade = SafeFacade(nac)
 
 
-# ============================================================================ tetikleyici damgası
+# ============================================================================ trigger stamp
 def _stamp_trigger(report: dict, site: SiteRuntime, at: datetime, trigger: str) -> dict:
-    """Bu taramayı KİM başlattı? Rapora ve o taramanın ürettiği HER defter satırına yazılır.
+    """WHO started this sweep? Written into the report and into EVERY ledger row that sweep produced.
 
-    Denetçi defteri tek başına okur; rapor saklanmaz. "Ajan mı karar verdi, biri düğmeye mi bastı"
-    sorusunun cevabı satırın içinde olmalı: `trigger: scheduler` (ajanın kendi kadansı) ·
-    `api` (dışarıdan tetiklenen tarama) · `demo` (jüri ekranındaki senaryo).
+    The auditor reads the ledger on its own; the report is not kept. The answer to "did the agent decide, or did
+    somebody press a button" must be inside the row: `trigger: scheduler` (the agent's own cadence) ·
+    `api` (a sweep triggered from outside) · `demo` (the scenario on the jury screen).
     """
     report["trigger"] = trigger
     for e in report.get("ledger_added") or []:
@@ -333,7 +338,7 @@ def _stamp_trigger(report: dict, site: SiteRuntime, at: datetime, trigger: str) 
     return report
 
 
-# ============================================================================ zamanlayıcı (ajanın kendi saati)
+# ============================================================================ scheduler (the agent's own clock)
 def _env_flag(name: str) -> bool | None:
     v = os.environ.get(name)
     if v is None or not v.strip():
@@ -342,19 +347,19 @@ def _env_flag(name: str) -> bool | None:
 
 
 class Scheduler:
-    """Ajanın kendi saati — "The agent decides. Nobody presses a button." iddiasının kodu.
+    """The agent's own clock — the code behind the claim "The agent decides. Nobody presses a button."
 
-    Kadans mantığı (`agent.policy.sweep_due`) yazılıydı ama onu çağıran yoktu: tarama YALNIZCA
-    `POST /v1/sites/{id}/sweep` ile dışarıdan tetikleniyordu. Bu görev o boşluğu kapatır — arka
-    plan görevi periyodik uyanır, her saha için `sweep_due()` sorar, gerekiyorsa taramayı çalıştırır.
+    The cadence logic (`agent.policy.sweep_due`) was written but nothing called it: sweeps were triggered
+    ONLY from outside via `POST /v1/sites/{id}/sweep`. This task closes that gap — a background
+    task wakes periodically, asks `sweep_due()` for each site, and runs the sweep when needed.
 
-    Kurallar:
-    - Her saha kendi kilidi altında taranır (bkz. `Store`); tur, global kilidi boyunca tutmaz.
-    - Bloklayan iş (senkron Nokia çağrıları) `asyncio.to_thread` ile olay döngüsünün DIŞINDA koşar.
-    - Hata görevi ÖLDÜRMEZ: sayaca yazılır, loglanır, bir sonraki tur devam eder.
-    - WBGT ölçümü hiç girilmemiş sahada verilecek karar yoktur — boşuna çalışmaz.
-    - Varsayılan: testte ve fixture modunda KAPALI (demolar belirlenimci kalsın); `HS_SCHEDULER`
-      ile açıkça açılıp kapatılır, uyanma aralığı `HS_SCHEDULER_TICK_S` (varsayılan 30 sn).
+    Rules:
+    - Each site is swept under its own lock (see `Store`); a tick does not hold the global lock throughout.
+    - Blocking work (synchronous Nokia calls) runs OUTSIDE the event loop via `asyncio.to_thread`.
+    - An error does NOT KILL the task: it is counted, logged, and the next tick carries on.
+    - A site with no WBGT reading entered has no decision to make — no wasted work.
+    - Default: OFF under tests and in fixture mode (so demos stay deterministic); explicitly turned on/off
+      with `HS_SCHEDULER`, wake interval `HS_SCHEDULER_TICK_S` (default 30 s).
     """
 
     def __init__(self) -> None:
@@ -369,7 +374,7 @@ class Scheduler:
         self.errors = 0
         self.last_error: str | None = None
 
-    # ---- yapılandırma
+    # ---- configuration
     @staticmethod
     def tick_seconds() -> float:
         raw = os.environ.get("HS_SCHEDULER_TICK_S", "30")
@@ -390,7 +395,7 @@ class Scheduler:
             return False, "default: off in fixture mode (demos stay deterministic) — set HS_SCHEDULER=1 to run it"
         return True, f"default: on for NAC_MODE={mode}"
 
-    # ---- ömür döngüsü
+    # ---- lifecycle
     def start(self) -> None:
         self.enabled, self.reason = self._decide()
         self.tick_s = self.tick_seconds()
@@ -420,29 +425,29 @@ class Scheduler:
                 await asyncio.to_thread(self.tick)
             except asyncio.CancelledError:
                 raise
-            except Exception as e:          # noqa: BLE001 — görev ASLA ölmez
+            except Exception as e:          # noqa: BLE001 — the task NEVER dies
                 self.errors += 1
                 self.last_error = f"{type(e).__name__}: {e}"
                 log.exception("scheduler tick failed — the loop continues")
 
-    # ---- bir tur
+    # ---- one tick
     def tick(self, now: datetime | None = None) -> list[dict]:
-        """Bir uyanış: her saha için `sweep_due()` sor, gerekiyorsa tara. Testlerden doğrudan çağrılabilir."""
+        """One wake-up: ask `sweep_due()` for each site and sweep if needed. Can be called directly from tests."""
         at = now or _now()
         ran: list[dict] = []
         self.ticks += 1
         self.last_tick_at = at
-        with store.lock:                               # demo sürerken kurulmakta olan sahayı görme
+        with store.lock:                               # don't see a site a running demo is still building
             sites = list(store.sites.values())
         for site in sites:
-            with site.lock:                            # saha başına: yavaş bir saha diğerini bekletmez
+            with site.lock:                            # per site: a slow site does not hold up another
                 if site.wbgt_c is None:
-                    continue                                   # ölçüm yok → verilecek karar yok
+                    continue                                   # no reading → no decision to make
                 if not sweep_due(site, at, site.cfg):
-                    continue                                   # kadans dolmadı
+                    continue                                   # cadence not due yet
                 try:
                     r = _stamp_trigger(step(site, at, facade, site.cfg, None), site, at, "scheduler")
-                except Exception as e:      # noqa: BLE001 — bir saha çökerse diğerleri taranmaya devam eder
+                except Exception as e:      # noqa: BLE001 — if one site crashes the others keep being swept
                     self.errors += 1
                     self.last_error = f"{site.site_id}: {type(e).__name__}: {e}"
                     log.exception("scheduled sweep failed site=%s — the loop continues", site.site_id)
@@ -466,13 +471,13 @@ class Scheduler:
 scheduler = Scheduler()
 
 
-# ============================================================================ istek modelleri
+# ============================================================================ request models
 class SiteIn(BaseModel):
-    # Varsayılanlar demo sahasıyla aynı yerdir: gerçek Lusail Marina District koordinatları
-    # (kaynaklar fixtures/roster.json `_sources`). Yarıçap 500 m KALIR — ölçülen 1000 m konum
-    # belirsizliğinin karşısındaki çeper bu ve bütün iddialarımız o orana dayanıyor.
+    # The defaults are the same place as the demo site: the real Lusail Marina District coordinates
+    # (sources in fixtures/roster.json `_sources`). The radius STAYS 500 m — this is the perimeter set against the
+    # measured 1000 m location uncertainty, and all our claims rest on that ratio.
     name: str = Field(default=ROSTER["site"]["name"], max_length=120)
-    # Varsayilan, dagitimin yargi alanidir (HS_JURISDICTION) — sabit "QA" degil.
+    # The default is the deployment's jurisdiction (HS_JURISDICTION) — not a hard-coded "QA".
     jurisdiction: str = Field(default_factory=lambda: CFG.jurisdiction.code, pattern="^(QA|SA|AE|qa|sa|ae)$")
     lat: float = Field(default=ROSTER["site"]["lat"], ge=-90, le=90)
     lng: float = Field(default=ROSTER["site"]["lng"], ge=-180, le=180)
@@ -480,13 +485,14 @@ class SiteIn(BaseModel):
 
 
 class WorkerIn(BaseModel):
-    # Uzunluk sınırları: sınırsız metin alanları belleği ve kanıt defterini şişirebiliyordu.
+    # Length limits: unbounded text fields could bloat memory and the evidence ledger.
     worker_id: str = Field(min_length=1, max_length=64)
     phone: str = Field(max_length=32)
     name: str = Field(default="", max_length=120)
     micro_zone: str = Field(default="z1", max_length=32)
-    # İşveren kayıt alanları — karara girmez, ekranda/defterde kimi konuştuğumuzu gösterir.
-    # (Uyruk ve meslek SKORLAMADA kullanılmaz; bkz. agent/policy.py WorkerRuntime.)
+    # Employer record fields — they do not enter the decision; they show on screen/in the ledger
+    # who we are talking about.
+    # (Nationality and trade are NOT used in SCORING; see agent/policy.py WorkerRuntime.)
     zone_label: str = Field(default="", max_length=64)
     nationality: str = Field(default="", max_length=64)
     trade: str = Field(default="", max_length=64)
@@ -497,8 +503,9 @@ class WorkerIn(BaseModel):
     badge_in: bool = True
     device_history: dict = Field(default_factory=dict)
     moving_out: bool = False
-    # Yabancı hat + dolaşım: ev operatörü Open Gateway sunmuyorsa bu işçiye teknik olarak hiç
-    # erişilemez. "Bulamadık" değil, KALICI OLARAK BİLİNMİYOR — kapsama metriğinde ayrı sayılır.
+    # Foreign line + roaming: if the home operator does not offer Open Gateway, this worker is technically
+    # not reachable at all. Not "we couldn't find them" but PERMANENTLY UNKNOWN — counted separately
+    # in the coverage metric.
     reachable_via_operator: bool = True
     subscribe: bool = True
 
@@ -510,13 +517,13 @@ class WorkerIn(BaseModel):
         return v
 
 
-WBGT_RANGE = {"ge": -20.0, "le": 60.0, "allow_inf_nan": False}   # WBGT, kuru termometre sıcaklığını aşamaz
+WBGT_RANGE = {"ge": -20.0, "le": 60.0, "allow_inf_nan": False}   # WBGT cannot exceed the dry-bulb temperature
 
 
 class SweepIn(BaseModel):
     now: datetime | None = None
     wbgt_c: float | None = Field(default=None, **WBGT_RANGE)
-    force: bool = True   # False → tarama sıklığı (sweep_due) dikkate alınır
+    force: bool = True   # False → the sweep cadence (sweep_due) is respected
 
 
 class WbgtIn(BaseModel):
@@ -527,12 +534,12 @@ class WbgtIn(BaseModel):
 class DemoIn(BaseModel):
     reset: bool = True
     start: datetime | None = None
-    # Varsayılan: vardiya listesinin tamamı (227 kalabalık + 13 adlı işçi = 240). Üst sınır
-    # roster.json'daki kalabalık kadardır; tavan herkese açık kopyada bellek korumasıdır (D bulgusu).
+    # Default: the whole roster (227 crowd + 13 named workers = 240). The upper bound is
+    # the size of the crowd in roster.json; the cap is memory protection on the public instance (finding D).
     fillers: int = Field(default=len(CROWD), ge=0, le=len(CROWD))
 
 
-# ============================================================================ kurulum
+# ============================================================================ setup
 def _site_cfg(code: str) -> Config:
     return CFG.with_jurisdiction(code.upper())
 
@@ -554,14 +561,15 @@ def _add_worker(site: SiteRuntime, body: WorkerIn) -> WorkerRuntime:
                    first_day_on_site=body.first_day_on_site, prior_incident=body.prior_incident,
                    shift=body.shift, badge_in=body.badge_in, device_history=dict(body.device_history),
                    moving_out=body.moving_out, reachable_via_operator=body.reachable_via_operator)
-    # Çağıran `site.lock` tutar. Kaplar kopyalanıp atanır: kilitsiz okuyucu değişen sözlüğü dolaşmaz.
+    # The caller holds `site.lock`. Containers are copied and reassigned: a lock-free reader never
+    # iterates a changing dict.
     site.workers = {**site.workers, w.worker_id: w}
     with store.lock:
         store.phone_index = {**store.phone_index, w.phone_hash: (site.site_id, w.worker_id)}
     if body.subscribe:
         sink = f"{PUBLIC_BASE_URL.rstrip('/')}/webhooks/geofence"
-        # CAMARA: abonelik başına TEK olay tipi. Giriş ve çıkış için AYRI abonelik açılır —
-        # ikisini tek gövdede göndermek canlı platformda 400 döndürür (Nokia SDK bunu zorluyor).
+        # CAMARA: ONE event type per subscription. SEPARATE subscriptions are opened for enter and exit —
+        # sending both in one body returns 400 on the live platform (the Nokia SDK enforces this).
         for etype in (GEO_ENTERED, GEO_LEFT):
             r = facade.call("geofence_subscribe", w.phone, site.lat, site.lng, site.radius_m, sink,
                             types=[etype], sink_token=WEBHOOK_TOKEN or None)
@@ -571,13 +579,13 @@ def _add_worker(site: SiteRuntime, body: WorkerIn) -> WorkerRuntime:
             with store.lock:
                 store.subs = {**store.subs, sid: (site.site_id, w.worker_id)}
             if etype == GEO_ENTERED:
-                site.subscriptions = {**site.subscriptions, w.worker_id: sid}   # birincil kimlik (geriye dönük)
+                site.subscriptions = {**site.subscriptions, w.worker_id: sid}   # primary ID (backward compatible)
             else:
                 site.subscriptions_left = {**site.subscriptions_left, w.worker_id: sid}
     return w
 
 
-# ============================================================================ uçlar
+# ============================================================================ endpoints
 @app.post("/v1/sites", status_code=201, dependencies=[Depends(require_api_token)])
 def create_site(body: SiteIn):
     with store.lock:
@@ -602,7 +610,7 @@ def add_worker(site_id: str, body: WorkerIn):
     site = store.site_or_404(site_id)
     with site.lock:
         if body.worker_id in site.workers:
-            # Sessizce ustune yazmak eski kaydin aboneliklerini sahipsiz birakiyordu.
+            # Silently overwriting left the old record's subscriptions orphaned.
             raise HTTPException(409, {"code": "ALREADY_EXISTS", "message": f"worker {body.worker_id} is already on this site"})
         if len(site.workers) >= MAX_WORKERS_PER_SITE:
             raise HTTPException(429, {"code": "WORKER_CAP", "message": f"a site on this instance holds at most "
@@ -615,12 +623,12 @@ def add_worker(site_id: str, body: WorkerIn):
 
 @app.post("/v1/sites/{site_id}/wbgt", dependencies=[Depends(require_api_token)])
 def set_wbgt(site_id: str, body: WbgtIn):
-    """Meteoroloji beslemesi (WBGT). Ölçüm defterlenir; karar taramada verilir."""
+    """Meteorology feed (WBGT). The reading is logged to the ledger; the decision is made in the sweep."""
     site = store.site_or_404(site_id)
     with site.lock:
         at = _parse_dt(body.now) or _now()
-        # Okumanin ZAMANI da yazilir: yoksa bayatlik kontrolu hic devreye girmez ve ajan gunler
-        # onceki bir degerle taramaya devam eder.
+        # The TIME of the reading is stored too: otherwise the staleness check never kicks in and the agent keeps
+        # sweeping on a value from days ago.
         site.wbgt_c, site.wbgt_at = body.wbgt_c, at
         site.log(at, "wbgt_reading", f"WBGT {body.wbgt_c} °C (legal limit {site.cfg.jurisdiction.wbgt_limit_c} °C)",
                  source="meteorology-feed", extra={"wbgt_c": body.wbgt_c})
@@ -629,7 +637,7 @@ def set_wbgt(site_id: str, body: WbgtIn):
 
 @app.post("/v1/sites/{site_id}/sweep", dependencies=[Depends(require_api_token)])
 def sweep(site_id: str, body: SweepIn | None = None):
-    """Bir tarama çalıştırır ve tam raporu döner (plan, çağrılar, kararlar, bütçe, deftere eklenenler)."""
+    """Runs one sweep and returns the full report (plan, calls, decisions, budget, ledger additions)."""
     body = body or SweepIn()
     site = store.site_or_404(site_id)
     with site.lock:
@@ -641,7 +649,7 @@ def sweep(site_id: str, body: SweepIn | None = None):
 
 @app.get("/v1/sites/{site_id}/ledger", dependencies=[Depends(require_read_access)])
 def ledger(site_id: str, worker_id: str | None = None, event: str | None = None, limit: int = Query(200, le=1000)):
-    """Kanıt defteri — denetçi/sigortacı için zaman damgalı, işçi bazlı uyum kaydı."""
+    """Evidence ledger — a timestamped, per-worker compliance record for the auditor/insurer."""
     site = store.site_or_404(site_id)
     items = [e for e in list(site.ledger) if (not worker_id or e.get("worker_id") == worker_id) and (not event or e["event"] == event)]
     return {"site_id": site_id, "count": len(items), "items": items[-limit:], "coverage": site.coverage()}
@@ -649,7 +657,7 @@ def ledger(site_id: str, worker_id: str | None = None, event: str | None = None,
 
 @app.get("/v1/jurisdictions")
 def jurisdictions():
-    """Bölgesel ölçeklenebilirlik: yargı alanı bir yapılandırma kaydıdır, yeniden yazım değil."""
+    """Regional scalability: a jurisdiction is a configuration record, not a rewrite."""
     return {code: j.to_dict() for code, j in JURISDICTIONS.items()}
 
 
@@ -661,16 +669,16 @@ def state():
         "subscriptions": [{"id": sid, "site_id": s, "worker_id": w} for sid, (s, w) in store.subs.items()],
         "degraded": list(store.degraded[-10:]),
         "webhook": {"sink": f"{PUBLIC_BASE_URL.rstrip('/')}/webhooks/geofence", "token_required": True},
-        "scheduler": scheduler.to_dict(),   # ajanın kendi saati: açık mı, son tur ne zaman döndü
-        # ESKIDEN BURADA SABIT 0 VARDI ve "surekli konum gecmisi tutulmaz" diyordu — YANLISTI.
-        # Defter isci bazinda zaman damgali bir varlik kaydidir; bunu gizlemek yerine SAYIYORUZ.
+        "scheduler": scheduler.to_dict(),   # the agent's own clock: is it on, when did the last tick run
+        # THIS USED TO BE A HARD-CODED 0 saying "no continuous location history is kept" — THAT WAS WRONG.
+        # The ledger is a timestamped per-worker presence record; instead of hiding that, we COUNT it.
         "presence_record": {sid: s.presence_record() for sid, s in store.sites.items()},
     }
 
 
 @app.get("/v1/scheduler")
 def scheduler_state():
-    """Ajanın kendi saati: açık mı, hangi aralıkla uyanıyor, son tur ne zaman döndü, kaç hata yedi."""
+    """The agent's own clock: is it on, how often it wakes, when the last tick ran, how many errors it has taken."""
     return scheduler.to_dict()
 
 
@@ -681,24 +689,24 @@ def config():
 
 @app.post("/v1/reset", dependencies=[Depends(require_api_token)])
 def reset():
-    """Tüm kanıt defterlerini siler — bu yüzden yönetici token'ı ister (webhook anahtarı yetmez).
+    """Wipes all evidence ledgers — which is why it requires the admin token (the webhook key is not enough).
 
-    Uyum kaydı ürünün kendisiyse, onu herkesin silebilmesi bir bütünlük açığıdır.
+    If the compliance record is the product itself, letting anyone wipe it is an integrity hole.
     """
     with store.lock:
         store.reset()
     return {"ok": True}
 
 
-# ============================================================================ webhook (ücretsiz sinyal)
+# ============================================================================ webhook (free signal)
 @app.post("/webhooks/geofence")
 def webhook_geofence(ev: dict = Body(...), authorization: Optional[str] = Header(default=None)):
-    """Geofencing aboneliğinin sink'i. Şebeke iter → sorgu bütçesi harcanmaz (§8 Move 1)."""
+    """Sink of the geofencing subscription. The network pushes → no query budget is spent (§8 Move 1)."""
     if not _bearer_ok(authorization, WEBHOOK_TOKEN):
         raise HTTPException(401, {"code": "UNAUTHENTICATED", "message": "invalid webhook token"})
     if not isinstance(ev, dict) or "type" not in ev:
         raise HTTPException(400, {"code": "INVALID_ARGUMENT", "message": "a CloudEvent is expected"})
-    with store.lock:                        # yalnızca eşleme + tekilleme; olay saha kilidi altında uygulanır
+    with store.lock:                        # only lookup + dedupe; the event is applied under the site lock
         data = ev.get("data") or {}
         found = store.subs.get(data.get("subscriptionId") or "")
         if not found:
@@ -706,7 +714,8 @@ def webhook_geofence(ev: dict = Body(...), authorization: Optional[str] = Header
             found = store.phone_index.get(hash_phone(phone)) if phone else None
         if not found:
             raise HTTPException(404, {"code": "UNKNOWN_SUBSCRIPTION", "message": "no subscription/worker matched"})
-        # `id` yoksa olayin icerigi kimlik olur: rastgele kimlik, ayni olayin iki teslimini iki olay sayiyordu.
+        # Without an `id`, the event's content becomes its ID: a random ID counted two deliveries
+        # of one event as two events.
         ce_id = ev.get("id") or "sha256:" + hashlib.sha256(json.dumps(ev, sort_keys=True, default=str).encode()).hexdigest()
         if ce_id in store.seen_cloudevent_ids:
             return {"ok": True, "duplicate": True}
@@ -731,17 +740,17 @@ def webhook_geofence(ev: dict = Body(...), authorization: Optional[str] = Header
         return {"ok": True, "site_id": site_id, "worker_id": worker_id, "kind": kind, "ledger": entry, "cost": 0}
 
 
-# ============================================================================ demo (tek tuş)
-DEMO_START = datetime(2026, 8, 17, 6, 0, tzinfo=timezone.utc)  # 09:00 Doha yerel saati
+# ============================================================================ demo (one button)
+DEMO_START = datetime(2026, 8, 17, 6, 0, tzinfo=timezone.utc)  # 09:00 Doha local time
 
 
 def _prime(phone: str, patch: dict) -> None:
-    """Demo veri/hata enjeksiyonu — her iki sürece birden.
+    """Demo data/fault injection — into both processes at once.
 
-    Simülatör modunda Nokia çağrıları AYRI bir sürece (8081) gider. Enjeksiyonu oraya da
-    iletmezsek iki şey birden bozulur: (1) api-down senaryosu ekranda kendi manşetini
-    yalanlar (yalnız W-011 düşer, diğer on işçi "doğrulandı" görünür), (2) profiles.json'daki
-    kalıcı `fail` değerleri temizlenemediği için devre kesici sonraki demoya sızar.
+    In simulator mode Nokia calls go to a SEPARATE process (8081). If we do not forward the injection
+    there too, two things break at once: (1) the api-down scenario contradicts its own headline on screen
+    (only W-011 fails, the other ten workers show as "verified"), (2) because the persistent `fail` values
+    in profiles.json cannot be cleared, the circuit breaker leaks into the next demo.
     """
     p = normalize_phone(phone)
     if nac.fx is not None:
@@ -749,13 +758,13 @@ def _prime(phone: str, patch: dict) -> None:
     if getattr(nac.cfg, "mode", "fixture") == "simulator":
         try:
             httpx.put(f"{nac.cfg.base_url.rstrip('/')}/_sim/profiles/{p}", json=patch, timeout=2.0)
-        except Exception as e:  # simülatör kapalıysa demo yine de çalışsın
+        except Exception as e:  # if the simulator is down the demo should still run
             log.warning("simulator prime failed phone=%s err=%s", mask_phone(p), e)
 
 
 def _worker_in(spec: dict, t0: datetime) -> WorkerIn:
-    """roster.json kaydı → WorkerIn. `days_on_site` demo saatine göre tarihe çevrilir (kırılganlık
-    ağırlığı `now - first_day_on_site` ile ölçüldüğü için mutlak tarih yazmak yanlış olurdu)."""
+    """roster.json record → WorkerIn. `days_on_site` is converted to a date relative to the demo clock (since the
+    vulnerability weight is measured as `now - first_day_on_site`, writing an absolute date would be wrong)."""
     return WorkerIn(
         worker_id=spec["worker_id"], phone=spec["phone"], name=spec["name"],
         micro_zone=spec["micro_zone"], zone_label=spec.get("zone_label", ""),
@@ -767,41 +776,41 @@ def _worker_in(spec: dict, t0: datetime) -> WorkerIn:
 
 
 def _setup_site(t0: datetime, fillers: int = len(CROWD), jurisdiction: str = "QA") -> SiteRuntime:
-    """13 adlandırılmış senaryo işçisi + kalabalık (varsayılan 227 → 240 kişilik vardiya listesi).
+    """13 named scenario workers + the crowd (default 227 → a roster of 240).
 
-    Kalabalık bütçenin neden yetmediğini görünür kılar: 240 kişilik bir sahada tarama başına 18
-    sorgu hakkı var, yani her taramada iki yüzden fazla işçi listede kalır. Ölçülen "tam kapsama
-    tavanı ~110 işçi/saha" iddiası ekranda böyle somutlaşır.
+    The crowd makes visible why the budget is not enough: on a 240-person site there are 18 queries
+    per sweep, so more than two hundred workers stay on the list every sweep. This is how the measured
+    "full-coverage ceiling of ~110 workers/site" claim becomes concrete on screen.
     """
     site = _create_site(SiteIn(name=SITE_NAME, jurisdiction=jurisdiction, **SITE), at=t0)
     for _, _, spec in NAMED:
         _add_worker(site, _worker_in(spec, t0))
     for spec in CROWD[:max(0, fillers)]:
         _add_worker(site, _worker_in(spec, t0))
-    # sabah vardiya girişi — ücretsiz geofence olayları (hiçbir sorgu harcanmaz)
+    # morning shift entry — free geofence events (no query is spent)
     for w in list(site.workers.values()):
         if w.worker_id == "W-012":
-            w.badge_in, w.inside, w.last_signal_at = True, False, None  # rozetle girdi, cihazı hiç görünmedi
+            w.badge_in, w.inside, w.last_signal_at = True, False, None  # badged in, the device was never seen
             continue
         apply_geofence_event(site, w.worker_id, "enter", t0)
     return site
 
 
 def _ban_hour_rotation(site: SiteRuntime, out_at: datetime, in_at: datetime) -> dict:
-    """Yasak saati rotasyonu — TAMAMEN ÜCRETSİZ, sıfır sorgu.
+    """Ban-hour rotation — ENTIRELY FREE, zero queries.
 
-    Katar'da 10:00–15:30 arası açık havada çalışmak yasak (Bakanlık Kararı 17/2021). 10:00'da iş
-    durur; ekipler çeperden çıkar. 10:15'te bir kısmı sahanın gölgelikli dinlenme istasyonlarına
-    geri girer; iklime alışmamış ve sıcak stresi kaydı olan ekip ise yasak penceresinin tamamını
-    çeperin DIŞINDAKİ refah kampında geçirir. Her iki geçiş de şebeke tarafından İTİLİR
-    (geofencing-subscriptions) — bütçeden bir kuruş harcanmaz.
+    In Qatar, outdoor work is banned between 10:00 and 15:30 (Ministerial Decision 17/2021). At 10:00 work
+    stops; crews leave the perimeter. At 10:15 some of them re-enter at the site's shaded rest
+    stations; the unacclimatised crew and those with a heat-stress record spend the whole ban window
+    in the welfare compound OUTSIDE the perimeter. Both crossings are PUSHED by the network
+    (geofencing-subscriptions) — not a cent of the budget is spent.
 
-    Veride iki sonucu var ve ikisi de ölçülebilir:
-      * Geri girenlerin bayatlığı sıfırdır (şebeke az önce "içeride" dedi) → sıralamanın en altına
-        düşerler, ama kuyruktan DÜŞMEZLER. Bütçe sabahtan beri hiç sinyal gelmeyenlere gider.
-      * Refah kampındakiler "presumed safe" olur → %10'luk rezerv onların en bayatını her taramada
-        yeniden doğrular, çünkü bayat bir çıkış olayı sessiz bir hata modudur.
-    Ücretsiz bir olay kimseyi güvende İLAN ETMEZ; yalnızca sıranın yerini belirler.
+    It has two effects in the data, and both are measurable:
+      * Those who re-enter have zero staleness (the network just said "inside") → they drop to the bottom of the
+        ranking, but they do NOT drop OUT of the queue. The budget goes to those with no signal since the morning.
+      * Those in the welfare compound become "presumed safe" → the 10% reserve re-verifies the stalest of them
+        every sweep, because a stale exit event is a silent failure mode.
+    A free event does NOT DECLARE anyone safe; it only sets their place in the order.
     """
     rotating = [w.worker_id for w in site.workers.values() if w.worker_id in ROTATION_IDS]
     welfare = [w.worker_id for w in site.workers.values() if w.worker_id in WELFARE_IDS]
@@ -833,9 +842,9 @@ def _demo_start(body: DemoIn | None) -> tuple[DemoIn, datetime]:
     if body.reset:
         store.reset()
     for api_name in list(nac.breaker.snapshot()):
-        nac.breaker.success(api_name)          # devre kesiciyi senaryolar arasında sıfırla
+        nac.breaker.success(api_name)          # reset the circuit breaker between scenarios
     for _, phone, *_ in NAMED:
-        _prime(phone, {"fail": None})          # önceki senaryonun hata enjeksiyonunu temizle
+        _prime(phone, {"fail": None})          # clear the previous scenario's fault injection
     return body, _parse_dt(body.start) or DEMO_START
 
 
@@ -848,13 +857,14 @@ def _sweep(site: SiteRuntime, at: datetime, wbgt: float | None, label: str) -> d
 
 @app.post("/v1/demo/heat-day", dependencies=[Depends(require_demo_mode)])
 def demo_heat_day(body: DemoIn | None = None):
-    """Bir sıcak günün tamamı: sessiz izleme → yasal ihlal → bütçeli tarama → bayılma → QoD → ihlalin bitişi."""
+    """A whole hot day: silent monitoring → legal breach → budgeted sweep → collapse → QoD →
+    end of the breach."""
     with store.lock:
         body, t0 = _demo_start(body)
         site = _setup_site(t0, body.fillers)
         first = [_sweep(site, t0 + timedelta(minutes=0), 30.2, "09:00 — morning: below the threshold, NO authority to query")]
-        # 10:00 — yasak saati: iş durur, ekipler çeperin dışındaki gölgelikli dinlenme alanına çıkar
-        # ve 10:15'te geri girer. Şebekenin ittiği ücretsiz olaylar; sıfır sorgu, sıfır maliyet.
+        # 10:00 — ban hours: work stops, crews go out to the shaded rest area outside the perimeter
+        # and re-enter at 10:15. Free events pushed by the network; zero queries, zero cost.
         rotation = _ban_hour_rotation(site, t0 + timedelta(minutes=60), t0 + timedelta(minutes=75))
         sweeps = first + [
             _sweep(site, t0 + timedelta(minutes=75), 31.4, "10:15 — summer ban hours began: breach (marginal)"),
@@ -870,11 +880,11 @@ def demo_heat_day(body: DemoIn | None = None):
 
 @app.post("/v1/demo/collapse", dependencies=[Depends(require_demo_mode)])
 def demo_collapse(body: DemoIn | None = None):
-    """Bayılma mı, bitmiş pil mi? Beş sessiz cihaz, dört hüküm — biri bayat okumaymış.
+    """Collapse, or a dead battery? Five silent devices, four verdicts — and one turned out to be a stale reading.
 
-    W-013 bu demonun yeni parçası: `device-reachability-status` onu "erişilemez" gösteriyor, ama o okuma
-    şebekenin TUTTUĞU durumdur ve bir saate kadar bayat olabilir. Sıkı tazelikli konum sorgusu cihazı
-    sayfalıyor, cevap geliyor → bayılma değil. Sağlıkçı boşuna çağrılmıyor.
+    W-013 is the new part of this demo: `device-reachability-status` shows it as "unreachable", but that reading is
+    the state the network HOLDS and can be up to an hour stale. A strict-freshness location query pages the
+    device, an answer comes back → not a collapse. The medic is not called for nothing.
     """
     with store.lock:
         body, t0 = _demo_start(body)
@@ -896,7 +906,7 @@ def demo_collapse(body: DemoIn | None = None):
 
 @app.post("/v1/demo/no-breach", dependencies=[Depends(require_demo_mode)])
 def demo_no_breach(body: DemoIn | None = None):
-    """Move 1 — eşik altında sorgu yetkisi yok: sıfır çağrı, sıfır maliyet, sıfır gözetim."""
+    """Move 1 — below the threshold there is no authority to query: zero calls, zero cost, zero surveillance."""
     with store.lock:
         body, t0 = _demo_start(body)
         site = _setup_site(t0, body.fillers)
@@ -910,7 +920,7 @@ def demo_no_breach(body: DemoIn | None = None):
 
 @app.post("/v1/demo/api-down", dependencies=[Depends(require_demo_mode)])
 def demo_api_down(body: DemoIn | None = None):
-    """Nokia API çöktüğünde: hiç kimse sessizce 'güvende' işaretlenmez — sinyal 'bilinmiyor' kalır."""
+    """When the Nokia API goes down: nobody is silently marked 'safe' — the signal stays 'unknown'."""
     with store.lock:
         body, t0 = _demo_start(body)
         site = _setup_site(t0, 0)
@@ -925,31 +935,31 @@ def demo_api_down(body: DemoIn | None = None):
 
 @app.post("/v1/demo/planner-guard", dependencies=[Depends(require_demo_mode)])
 def demo_planner_guard(body: DemoIn | None = None):
-    """Model kuralların ALTINDA: sırayı tartışabilir, planı genişletemez.
+    """The model sits BELOW the rules: it can argue about the order, it cannot widen the plan.
 
-    Aynı ihlal iki kez taranır. İlkinde model geçerli bir yeniden sıralama önerir ve uygulanır.
-    İkincisinde plana hiç var olmayan bir işçi sokmaya çalışır; güvenlik kapısı öneriyi bütünüyle
-    reddeder, kuralların sırası aynen yürür ve red gerekçesi kanıt defterine yazılır.
+    The same breach is swept twice. In the first, the model proposes a valid reordering and it is applied.
+    In the second, it tries to slip in a worker who does not exist in the plan at all; the safety gate rejects
+    the proposal outright, the rules' order runs unchanged, and the rejection reason is written to the evidence ledger.
 
-    Anahtar gerektirmez: sağlayıcı çağrısı bu demo boyunca yerinde taklit edilir ve bu durum
-    yanıtta `simulated_model=true` olarak açıkça belirtilir — canlı model gibi sunulmaz.
+    No key is needed: the provider call is mocked in place for the duration of this demo, and this is stated
+    explicitly in the response as `simulated_model=true` — it is not presented as a live model.
     """
     from agent import llm_adapter as LA
 
-    def _valid(prompt):   # kurala uyan öneri: en kırılganı öne al (listeyi tersine çevir)
+    def _valid(prompt):   # a rule-abiding proposal: move the most vulnerable to the front (reverse the list)
         ids = [i["id"] for i in json.loads(prompt)["plan"]]
         return json.dumps({"order": [{"id": i, "why": "unacclimatised / unseen longest"} for i in reversed(ids)],
                            "note": "risk order revised"})
 
-    def _injects(prompt):  # ihlal: planda olmayan bir işçi ekle
+    def _injects(prompt):  # violation: add a worker who is not in the plan
         ids = [i["id"] for i in json.loads(prompt)["plan"]]
         return json.dumps({"order": [{"id": "W-999", "why": "not in the plan at all"}] + [{"id": i} for i in ids]})
 
     def _scripted(reply) -> "LA.LLMPlanner":
-        # Taklit sağlayıcı YALNIZCA bu demo sahasına verilir (`site.planner`). Eskiden ortam
-        # değişkenleri ve `LLMPlanner._call_gemini` süreç genelinde değiştiriliyordu: demo sürerken
-        # başka bir sahanın gerçek taraması taklit modele gidebilirdi. Model adı bilerek
-        # "demo-simulated": defterde canlı Gemini gibi görünmesin.
+        # The mock provider is given ONLY to this demo site (`site.planner`). Previously the environment
+        # variables and `LLMPlanner._call_gemini` were changed process-wide: while the demo ran,
+        # another site's real sweep could have gone to the mock model. The model name is deliberately
+        # "demo-simulated": so it does not look like live Gemini in the ledger.
         planner = LA.LLMPlanner("gemini", "demo-key", model="demo-simulated")
         planner._call_gemini = reply
         return planner
@@ -978,10 +988,10 @@ def demo_planner_guard(body: DemoIn | None = None):
 
 @app.post("/v1/demo/jurisdiction", dependencies=[Depends(require_demo_mode)])
 def demo_jurisdiction(body: DemoIn | None = None):
-    """Aynı an, üç yargı alanı: Katar / Suudi Arabistan / BAE. Yargı alanı bir config kaydıdır."""
+    """Same moment, three jurisdictions: Qatar / Saudi Arabia / UAE. A jurisdiction is a config record."""
     with store.lock:
         body, t0 = _demo_start(body)
-        at = t0.replace(hour=8, minute=45)   # 11:45 Doha/Riyad · 12:45 Dubai yerel
+        at = t0.replace(hour=8, minute=45)   # 11:45 Doha/Riyadh · 12:45 Dubai local
         out = []
         for code in ("QA", "SA", "AE"):
             site = _setup_site(at, 0, jurisdiction=code)
@@ -995,11 +1005,11 @@ def demo_jurisdiction(body: DemoIn | None = None):
 
 
 def _query_unit_cost_usd() -> float | None:
-    """Sorgu başına birim maliyet — YALNIZCA operatör kendi rakamını verirse (HS_QUERY_UNIT_COST_USD).
+    """Unit cost per query — ONLY if the operator supplies its own figure (HS_QUERY_UNIT_COST_USD).
 
-    Burada sabit bir `queries * 0.02` vardı. O 0.02'nin hiçbir kaynağı yoktu: Nokia'nın yayınlanmış
-    bir birim fiyatı yok, elimizde bir teklif de yok. Kaynaksız bir dolar rakamı jüri önünde tek
-    soruyla çöker ve bu projenin tek sermayesi dürüstlüktür. Varsayılan artık "rakam yok".
+    There used to be a hard-coded `queries * 0.02` here. That 0.02 had no source at all: Nokia has no published
+    unit price and we hold no quote. An unsourced dollar figure collapses under a single question from the jury,
+    and honesty is this project's only capital. The default is now "no figure".
     """
     raw = (os.environ.get("HS_QUERY_UNIT_COST_USD") or "").strip()
     if not raw:
@@ -1013,7 +1023,7 @@ def _query_unit_cost_usd() -> float | None:
 
 
 def _cost_block(queries: int) -> dict:
-    """Maliyet bloğu: ya kaynağı belli bir rakam, ya hiç rakam."""
+    """Cost block: either a figure with a known source, or no figure at all."""
     unit = _query_unit_cost_usd()
     if unit is None:
         return {"queries": queries, "unit_cost_usd": None, "estimated_cost_usd": None, "priced": False,
@@ -1025,18 +1035,18 @@ def _cost_block(queries: int) -> dict:
                      f"runs this deployment. NOT a Nokia price and NOT an operator quote."}
 
 
-# Ölçülmüş tam kapsama tavanı (README "Measured limits"): tarama başına 20 sorgu ve 2 dakikalık
-# kadansla bir sahanın HERKESİNİ yeniden doğrulama penceresi içinde görebildiği işçi sayısı.
-# Demo sahası bu tavanın iki katından fazla — tavanın ne anlama geldiği ekranda böyle görünür.
+# Measured full-coverage ceiling (README "Measured limits"): with 20 queries per sweep and a 2-minute
+# cadence, the number of workers for which a site can see EVERYONE within the re-verification window.
+# The demo site is more than twice this ceiling — this is how what the ceiling means shows up on screen.
 FULL_COVERAGE_CEILING = 110
 
 
 def _scale_block(site: SiteRuntime, sweeps: list[dict]) -> dict:
-    """Ölçek bloğu: bütçe kısıtının SAYISI — iddia değil, bu koşudan okunan ölçüm.
+    """Scale block: the NUMBER behind the budget constraint — not a claim, a measurement read from this run.
 
-    "Tam kapsama tavanı ~110 işçi/saha" cümlesi tek başına soyut. Burada kuyruğun gerçek derinliği,
-    taramanın kaç kişiye yetiştiği ve ihlal boyunca bir kez bile sorgulanamayan işçi sayısı
-    raporlanır. Büyük sahanın doğru modeli alt sahalardır; bunu saklamak yerine sayıyoruz.
+    The sentence "full-coverage ceiling of ~110 workers/site" is abstract on its own. Here we report the real depth
+    of the queue, how many people the sweep reached, and how many workers could not be queried even once
+    during the breach. The right model for a large site is sub-sites; instead of hiding that, we count it.
     """
     breached = [s for s in sweeps if s.get("breached")]
     depth = [s["budget"]["skipped_for_budget"] + s["budget"]["planned"] - s["budget"]["reserve_rechecks"]
@@ -1071,12 +1081,12 @@ def _scale_block(site: SiteRuntime, sweeps: list[dict]) -> dict:
 
 
 def _zone_block(site: SiteRuntime) -> dict:
-    """Alt bölgeler — gerçek Lusail mahalle adları, ama ETİKET olarak.
+    """Sub-zones — real Lusail precinct names, but as LABELS.
 
-    Çeper TEK parçadır ve öyle kalır: ölçülen 1000 m konum belirsizliği 500 m yarıçapın
-    mertebesinde olduğu için bir alt bölge şebekeden DOĞRULANAMAZ. Bu liste işveren etiketidir —
-    ekip gruplaması, WBGT atfı ve küme testi (aynı etiketteki kaç cihaz birlikte sustu) için
-    kullanılır; hiçbir koordinattan türetilmez ve çevresine geofence çizilmez.
+    The perimeter is ONE piece and stays that way: since the measured 1000 m location uncertainty is on the order
+    of the 500 m radius, a sub-zone CANNOT BE VERIFIED from the network. This list is employer labels —
+    used for crew grouping, WBGT attribution and the cluster test (how many devices with the same label went
+    silent together); it is never derived from any coordinate and no geofence is drawn around it.
     """
     zones = []
     for zid, meta in ZONES.items():
@@ -1097,31 +1107,31 @@ def _zone_block(site: SiteRuntime) -> dict:
             "list": zones}
 
 
-# Sıralamanın harcadığı basamaklar (bütçe bunlara harcanır) — eskalasyon sonrası çağrılar ayrı sayılır:
-# konum çekme / congestion / QoD bir hükümden SONRA gelir, "herkesi sorgula" dünyasında da gelirdi.
+# The steps the ranking spends on (the budget is spent on these) — post-escalation calls are counted separately:
+# location retrieval / congestion / QoD come AFTER a verdict, and would come in the "query everyone" world too.
 VERIFICATION_APIS = ("location-verification", "device-reachability-status")
 
 
 def _naive_baseline(sweeps: list[dict]) -> dict:
-    """"Herkesi sorgulasaydık" taban çizgisi — ölçülür, uydurulmaz.
+    """The "if we had queried everyone" baseline — measured, not made up.
 
-    Eskiden `len(workers) × ihlalli_tarama × 2` yazıyordu; oradaki 2 bir varsayımdı (işçi başına iki
-    API) ve hiçbir yerden gelmiyordu. Gerçek taban çizgisi taramanın KENDİ raporundan okunur: her
-    ihlalli taramada, vardiya listesinin sahada saydığı (rozetli, çıkışı işlenmemiş) her işçi için
-    bir doğrulama — sayılır, varsayılmaz.
+    Previously it said `len(workers) × breached_sweeps × 2`; the 2 there was an assumption (two APIs per
+    worker) and came from nowhere. The real baseline is read from the sweep's OWN report: on every
+    breached sweep, one verification for each worker the roster counts as on site (badged in, no exit
+    processed) — counted, not assumed.
 
-    Elmayla elma: taban çizgisi doğrulama basamaklarını sayar, biz de doğrulama basamaklarını
-    sayarız. Eskalasyondan sonraki çağrılar (koordinat, congestion, QoD) her iki dünyada da olurdu,
-    ikisinden de çıkarılır ve ayrıca raporlanır. Ücretsiz geofence olayları da ortaktır.
-    Taban çizgisi bilerek TUTUCUdur: işçi başına TEK doğrulama sayılır (iki basamağı da soran naif
-    bir sistem iki katını harcardı) ve çıkışı işlenmiş işçiler baştan düşülür.
+    Apples to apples: the baseline counts verification steps, and we count verification steps
+    too. Post-escalation calls (coordinate, congestion, QoD) would happen in both worlds, so they are
+    removed from both and reported separately. Free geofence events are common to both as well.
+    The baseline is deliberately CONSERVATIVE: only ONE verification per worker is counted (a naive system
+    asking both steps would spend twice as much) and workers whose exit was processed are dropped up front.
     """
     def on_roster(sweep: dict) -> int:
         return len([w for w in (sweep.get("workers") or []) if w.get("badge_in") and not w.get("exited_at")])
 
     per_sweep = [on_roster(s) for s in sweeps if s.get("breached")]
     calls = [c for s in sweeps for c in (s.get("calls") or [])]
-    # Canlilik problari bir sessizlik hukmunu IZLER — iki dunyada da olurdu; yalnizca butceli havuz sayilir
+    # Liveness probes FOLLOW a silence verdict — they would happen in both worlds; only the budgeted pool is counted
     verification = sum(1 for c in calls if c.get("api") in VERIFICATION_APIS and c.get("pool") in ("main", "reserve"))
     return {"queries": sum(per_sweep), "per_breached_sweep": per_sweep,
             "verification_queries_made": verification,
@@ -1157,7 +1167,8 @@ def _demo_out(site: SiteRuntime, sweeps: list[dict], scenario: str, headline: st
 
 @app.get("/", include_in_schema=False)
 def root():
-    """Çıplak adres arayüze gitsin: jüri (ve kullanıcı) '/demo' ekini bilmiyor. JSON künye /v1/about'ta."""
+    """The bare address should go to the UI: the jury (and users) don't know the '/demo' suffix.
+    The JSON info is at /v1/about."""
     return RedirectResponse(url="/demo", status_code=302)
 
 

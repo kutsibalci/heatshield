@@ -1,11 +1,11 @@
-"""NacClient — tek Nokia NaC giriş noktası.
+"""NacClient — the single Nokia NaC entry point.
 
-Modlar (NacConfig.mode):
-  fixture    → FixtureBackend (bellek içi), HTTP yok. Testler ve "API çöktü" yedek modu.
-  simulator  → yerel apps/simulator HTTP mock'u (aynı path'ler, aynı fixture'lar). Client'ın HTTP katmanını kanıtlar.
-  live       → RapidAPI (https://network-as-code.p-eu.rapidapi.com), gerçek anahtarlarla. SIMULATOR/DEFAULT planı.
+Modes (NacConfig.mode):
+  fixture    → FixtureBackend (in-memory), no HTTP. Tests and the "API is down" fallback mode.
+  simulator  → the local apps/simulator HTTP mock (same paths, same fixtures). Proves the client's HTTP layer.
+  live       → RapidAPI (https://network-as-code.p-eu.rapidapi.com), with real keys. SIMULATOR/DEFAULT plan.
 
-Her çağrı NacResult döner: data (CAMARA gövdesi), api adı, kaynak modu, gecikme. explain[] için kullanılır.
+Every call returns a NacResult: data (CAMARA body), api name, source mode, latency. Used for explain[].
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from .resilience import CircuitBreaker, with_retry
 log = logging.getLogger("nac_client")
 log.addFilter(MaskingFilter())
 
-# --- Doğrulanmış path'ler (docs/nac-api-reference.md) ---------------------------------------
+# --- Verified paths (docs/nac-api-reference.md) ---------------------------------------------
 P = {
     "number_recycling": "passthrough/camara/v1/number-recycling/number-recycling/v0.2/check",
     "call_forwardings": "passthrough/camara/v1/call-forwarding-signal/call-forwarding-signal/v0.3/call-forwardings",
@@ -54,7 +54,7 @@ P = {
     "qod_sessions": "quality-on-demand/v1/sessions",
     "qod_retrieve": "quality-on-demand/v1/retrieve-sessions",
 }
-PASSTHROUGH_PREFIX = "passthrough/"  # bu path'ler Bearer token ister
+PASSTHROUGH_PREFIX = "passthrough/"  # these paths require a Bearer token
 
 
 @dataclass
@@ -63,12 +63,12 @@ class NacConfig:
     base_url: str = "https://network-as-code.p-eu.rapidapi.com"
     rapidapi_key: str = ""
     rapidapi_host: str = "network-as-code.nokia.rapidapi.com"
-    oauth_token: str = ""  # passthrough API'ler için Bearer (client-credentials ile alınır)
+    oauth_token: str = ""  # Bearer for passthrough APIs (obtained via client-credentials)
     timeout_s: float = 4.0
     retries: int = 2
     breaker_threshold: int = 3
     breaker_cooldown_s: float = 20.0
-    fixture_path: str | None = None  # fixture modunda yüklenecek JSON
+    fixture_path: str | None = None  # JSON to load in fixture mode
 
     @classmethod
     def from_env(cls) -> "NacConfig":
@@ -95,7 +95,7 @@ class NacResult:
     source: str  # fixture | simulator | live
     latency_ms: int
     correlator: str
-    request: dict = field(default_factory=dict)  # maskelenmiş istek özeti (explain için)
+    request: dict = field(default_factory=dict)  # masked request summary (for explain)
 
     def to_dict(self) -> dict:
         return {"api": self.api, "source": self.source, "latency_ms": self.latency_ms, "correlator": self.correlator, "request": self.request, "response": self.data}
@@ -109,11 +109,11 @@ class NacClient:
             self.fx = fixtures or (FixtureBackend.from_json(self.cfg.fixture_path) if self.cfg.fixture_path else FixtureBackend())
             self.http = None
         else:
-            self.fx = fixtures  # opsiyonel: HTTP çökerse yedek
+            self.fx = fixtures  # optional: fallback if HTTP fails
             self.http = http or httpx.Client(base_url=self.cfg.base_url.rstrip("/") + "/", timeout=self.cfg.timeout_s)
-        self.calls: list[NacResult] = []  # son çağrılar (debug paneli)
+        self.calls: list[NacResult] = []  # recent calls (debug panel)
 
-    # ---------------------------------------------------------------- çekirdek
+    # ---------------------------------------------------------------- core
     def _headers(self, path: str) -> dict:
         h = {"content-type": "application/json", "x-rapidapi-key": self.cfg.rapidapi_key, "x-correlator": str(uuid.uuid4())}
         if self.cfg.rapidapi_host:
@@ -169,7 +169,7 @@ class NacClient:
     def health(self) -> dict:
         return {"mode": self.cfg.mode, "base_url": self.cfg.base_url if self.cfg.mode != "fixture" else None, "breaker": self.breaker.snapshot(), "recent_calls": len(self.calls)}
 
-    # ---------------------------------------------------------------- kimlik / dolandırıcılık
+    # ---------------------------------------------------------------- identity / fraud
     def number_recycling(self, phone: str, specified_date: str) -> NacResult:
         p = normalize_phone(phone)
         return self._call("number-recycling", "POST", P["number_recycling"], json={"phoneNumber": p, "specifiedDate": specified_date}, phone=p,
@@ -203,7 +203,7 @@ class NacClient:
                           fixture_fn=lambda: self.fx.kyc_match(p, **fields))
 
     def number_verify(self, phone: str) -> NacResult:
-        """Canlıda: cihazın mobil veri üzerinden aldığı OIDC token ile çağrılır (3-legged). Prototipte SIMULATOR/fixture."""
+        """In live use: called with the OIDC token the device obtains over mobile data (3-legged). SIMULATOR/fixture in the prototype."""
         p = normalize_phone(phone)
         return self._call("number-verification", "POST", P["number_verify"], json={"phoneNumber": p}, phone=p,
                           fixture_fn=lambda: self.fx.number_verify(p))
@@ -231,7 +231,7 @@ class NacClient:
         return self._call("consent-info", "POST", P["consent"], json={"phoneNumber": p, "scopes": scopes, "purpose": purpose}, phone=p,
                           fixture_fn=lambda: self.fx.consent(p, scopes, purpose))
 
-    # ---------------------------------------------------------------- cihaz / konum
+    # ---------------------------------------------------------------- device / location
     def reachability(self, phone: str) -> NacResult:
         p = normalize_phone(phone)
         return self._call("device-reachability-status", "POST", P["reachability"], json={"device": {"phoneNumber": p}}, phone=p, fixture_fn=lambda: self.fx.reachability(p))
@@ -255,7 +255,7 @@ class NacClient:
         body = {"device": {"phoneNumber": p}, **({"start": start} if start else {}), **({"end": end} if end else {})}
         return self._call("congestion-insights", "POST", P["congestion_query"], json=body, phone=p, fixture_fn=lambda: self.fx.congestion_query(p, start, end))
 
-    # ---------------------------------------------------------------- abonelikler (webhook)
+    # ---------------------------------------------------------------- subscriptions (webhook)
     def _sub_body(self, phone: str, sink: str, types: list[str], sink_token: str | None, expire: datetime | None, extra_detail: dict | None = None, initial_event: bool = False, max_events: int | None = None) -> dict:
         exp = expire or (datetime.now(timezone.utc) + timedelta(days=1))
         body: dict[str, Any] = {
@@ -274,9 +274,9 @@ class NacClient:
             body["sinkCredential"] = {"credentialType": "ACCESSTOKEN", "accessToken": sink_token, "accessTokenType": "bearer"}
         return body
 
-    # CAMARA geofencing: ABONELIK BASINA TEK OLAY TIPI. Nokia SDK bunu acikca zorluyor
-    # (network_as_code/geofencing/raw_client.py) — iki tipi tek govdede gondermek 400 dondurur.
-    # area-entered ve area-left icin AYRI abonelik acilir; bkz. geofence_subscribe_both().
+    # CAMARA geofencing: ONE EVENT TYPE PER SUBSCRIPTION. The Nokia SDK enforces this explicitly
+    # (network_as_code/geofencing/raw_client.py) — sending both types in one body returns 400.
+    # SEPARATE subscriptions are opened for area-entered and area-left; see geofence_subscribe_both().
     GEO_ENTERED = "org.camaraproject.geofencing-subscriptions.v0.area-entered"
     GEO_LEFT = "org.camaraproject.geofencing-subscriptions.v0.area-left"
 
@@ -336,7 +336,7 @@ class NacClient:
         return self._call("quality-on-demand", "POST", P["qod_retrieve"], json={"device": {"phoneNumber": p}}, phone=p, fixture_fn=lambda: self.fx.qod_list(p))
 
 
-# ---------------------------------------------------------------- yardımcılar
+# ---------------------------------------------------------------- helpers
 def _circle(lat: float, lng: float, radius_m: float) -> dict:
     return {"areaType": "CIRCLE", "center": {"latitude": lat, "longitude": lng}, "radius": radius_m}
 

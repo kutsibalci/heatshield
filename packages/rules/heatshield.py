@@ -1,15 +1,15 @@
-"""HeatShield karar kuralları — SAF fonksiyonlar (yan etkisiz, fixture ile test edilir).
+"""HeatShield decision rules — PURE functions (side-effect free, tested with fixtures).
 
-Girdi: sinyal sözlükleri; çıktı: Decision / Explain listeleri. API çağrısı YOK, saat okuması YOK (now parametre).
+Input: signal dicts; output: Decision / Explain lists. NO API calls, NO clock reads (now is a parameter).
 
-Fonksiyonlar (idea capture referansı):
-  site_state            §5.2 adım 2 — WBGT eşiği VEYA yaz yasağı saati → ihlal + şiddet
+Functions (idea capture reference):
+  site_state            §5.2 step 2 — WBGT threshold OR summer-ban hours → breach + severity
   exposure_score        §8 Move 2 — severity × exposure_minutes × staleness × vulnerability
-                        (severity SAHA geneli; diğer üçü İŞÇİ bazında — bkz. exposure_window)
-  plan_verification     §8 Move 2/3 — sıralı bütçe harcaması, rezerv, maliyet merdiveni
-                        (eşit skorda tiebreak: en bayat sinyal önce, alfabetik telefon DEĞİL)
-  classify_unreachable  §9 — küme testi, cihaz geçmişi, yörünge → verdict + confidence
-  escalate              §5.2 adım 5 — notify_medic / request_qod / provision_slice / log_only
+                        (severity is SITE-wide; the other three are per WORKER — see exposure_window)
+  plan_verification     §8 Move 2/3 — ranked budget spending, reserve, cost ladder
+                        (tiebreak on equal score: stalest signal first, NOT alphabetical phone)
+  classify_unreachable  §9 — cluster test, device history, trajectory → verdict + confidence
+  escalate              §5.2 step 5 — notify_medic / request_qod / provision_slice / log_only
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ VERDICTS = ("probable_collapse", "probable_network", "probable_battery", "probab
 STATES = ("passive_watch", "alert", "confirming", "distress", "emergency")
 
 
-# ----------------------------------------------------------------------------- yardımcılar
+# ----------------------------------------------------------------------------- helpers
 def _dt(v: Any) -> datetime | None:
     if v is None or v == "":
         return None
@@ -39,7 +39,7 @@ def _dt(v: Any) -> datetime | None:
 
 
 def _iso_or_none(dt: datetime | None) -> str | None:
-    """Kanıt defteri/explain için okunur zaman damgası (UTC, Z ekli)."""
+    """A readable timestamp for the evidence ledger/explain (UTC, with a Z suffix)."""
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if dt else None
 
 
@@ -50,18 +50,18 @@ def _minutes_between(a: datetime | None, b: datetime | None) -> float | None:
 
 
 def local_time(now: datetime, jur: Jurisdiction) -> datetime:
-    """tz-aware → yargı alanı yerel saatine çevir; naive → zaten yerel kabul edilir."""
+    """tz-aware → convert to the jurisdiction's local time; naive → already assumed to be local."""
     if now.tzinfo is None:
         return now
     return now.astimezone(timezone(timedelta(hours=jur.tz_offset_hours)))
 
 
-# ----------------------------------------------------------------------------- 1) site durumu
+# ----------------------------------------------------------------------------- 1) site state
 def site_state(wbgt_c: float | None, now: datetime, jurisdiction: Jurisdiction, cfg: Config | None = None,
                wbgt_at: datetime | Any = None) -> dict:
-    """WBGT eşiği VEYA yaz yasağı saati → {"breached", "severity", "level", "reason", "explain"}.
+    """WBGT threshold OR summer-ban hours → {"breached", "severity", "level", "reason", "explain"}.
 
-    severity: 0 (ihlal yok) · 1.0 (yasal sınırda / yaz yasağı) · 1 + (wbgt-limit)/severe_delta (eşik aşımı).
+    severity: 0 (no breach) · 1.0 (at the legal limit / summer ban) · 1 + (wbgt-limit)/severe_delta (threshold exceeded).
     level: none | marginal | severe (severe: wbgt ≥ limit + severe_delta_c).
     """
     cfg = cfg or Config(jurisdiction=jurisdiction)
@@ -70,7 +70,7 @@ def site_state(wbgt_c: float | None, now: datetime, jurisdiction: Jurisdiction, 
     limit = jurisdiction.wbgt_limit_c
     delta = cfg.budget.severe_delta_c
 
-    # Okumanin YASI karara girer: bayat bir olcum, olcum yokluguyla aynidir.
+    # The AGE of the reading enters the decision: a stale reading is the same as no reading.
     age_min = _minutes_between(_dt(wbgt_at), now) if wbgt_at is not None else None
     stale = age_min is not None and age_min > cfg.budget.wbgt_max_age_minutes
     known = wbgt_c is not None and not stale
@@ -104,9 +104,10 @@ def site_state(wbgt_c: float | None, now: datetime, jurisdiction: Jurisdiction, 
     elif ban_breach:
         severity, level, reason = 1.0, "marginal", "summer ban hours (work legally prohibited)"
     elif not known:
-        # Yaz yasağı saati dışındayız ve kullanılabilir ölçüm yok. İhlal İLAN EDEMEYİZ — sorgu
-        # yetkisi doğmaz, amaç sınırlaması korunur. Ama "ihlal yok" da DİYEMEYİZ: ölen bir besleme
-        # sessizce güvenlik beyanına dönüşemez. Durum açıkça "değerlendirilemedi" olarak raporlanır.
+        # We are outside summer-ban hours and there is no usable reading. We CANNOT DECLARE a breach — no
+        # query authority arises, purpose limitation is preserved. But we CANNOT SAY "no breach" either: a
+        # dead feed must not silently turn into a statement of safety. The state is reported explicitly
+        # as "could not be assessed".
         severity, level = 0.0, "unknown"
         reason = (("WBGT reading is stale" if stale else "no WBGT reading")
                   + " — the legal threshold cannot be assessed. This is not a statement that the site is safe")
@@ -122,9 +123,9 @@ def sweep_interval_minutes(level: str, cfg: Config) -> int:
     return int(cfg.budget.sweep_minutes["severe" if level == "severe" else "marginal"])
 
 
-# ----------------------------------------------------------------------------- 2) maruziyet skoru
+# ----------------------------------------------------------------------------- 2) exposure score
 def vulnerability_weight(worker: dict, now: datetime, cfg: Config) -> tuple[float, list[Explain]]:
-    """Statik işçi ağırlığı: ilk hafta > önceki olay > vardiya geçişi > varsayılan (en yüksek olan alınır)."""
+    """Static worker weight: first week > prior incident > shift transition > default (the highest one is taken)."""
     w = cfg.vulnerability
     ex: list[Explain] = []
     weight, why = w.default, "default"
@@ -146,18 +147,18 @@ def vulnerability_weight(worker: dict, now: datetime, cfg: Config) -> tuple[floa
     return weight, ex
 
 
-# İşçinin sahaya GİRİŞ anını taşıyabilecek sinyal alanları — öncelik sırasıyla denenir.
-# Çalışma zamanı (agent/policy.py) bunlardan birini yayımlarsa maruziyet saati o andan işler.
-# NEDEN `last_signal_at` / `last_verified_at` BURADA YOK: ikisi de giriş anında da, ihlal
-# sırasında yapılan doğrulamada da "şimdi" olur — ayırt edilemezler. Doğrulanmış bir işçide
-# onları giriş sanıp saati sıfırlamak, "bölge içinde olduğunu TEYİT ettiğimiz" işçinin
-# maruziyetini eksik gösterir; bu güvenlik yönünde yanlış taraftır. Alan yoksa temkinli
-# davranıp ihlal başlangıcını kullanırız (maruziyet asla EKSİK tahmin edilmez).
+# Signal fields that may carry the moment the worker ENTERED the site — tried in priority order.
+# If the runtime (agent/policy.py) publishes one of these, the exposure clock runs from that moment.
+# WHY `last_signal_at` / `last_verified_at` ARE NOT HERE: both become "now" both at the moment of entry
+# and during a verification made during the breach — they cannot be told apart. Taking them for an
+# entry on a verified worker and resetting the clock would understate the exposure of a worker "we
+# CONFIRMED to be inside the zone"; that is the wrong side to err on for safety. If there is no field we
+# stay cautious and use the breach start (exposure is never UNDERestimated).
 ENTRY_SIGNAL_FIELDS = ("entered_at", "area_entered_at", "geofence_entered_at", "inside_since", "first_seen_at")
 
 
 def worker_entered_at(worker: dict) -> tuple[datetime | None, str | None]:
-    """İşçinin sahaya giriş anı + hangi alandan geldiği (ilk bulunan alan kazanır)."""
+    """The moment the worker entered the site + which field it came from (the first field found wins)."""
     for field_name in ENTRY_SIGNAL_FIELDS:
         dt = _dt(worker.get(field_name))
         if dt is not None:
@@ -166,10 +167,10 @@ def worker_entered_at(worker: dict) -> tuple[datetime | None, str | None]:
 
 
 def exposure_window(worker: dict, breach_started_at: datetime | Any, now: datetime) -> tuple[datetime | None, float, str, str]:
-    """İŞÇİ BAZINA inmiş maruziyet penceresi → (başlangıç, dakika, kaynak_alan, gerekçe).
+    """Exposure window brought down to the PER-WORKER level → (start, minutes, source_field, reason).
 
-    Maruziyet, sahanın ihlal başlangıcı ile işçinin kendi giriş anının GEÇ olanından sayılır:
-    ihlal 12:00'de başladıysa ve işçi 12:30'da girdiyse, 13:00'te maruziyeti 60 değil 30 dakikadır.
+    Exposure counts from the LATER of the site's breach start and the worker's own entry moment:
+    if the breach began at 12:00 and the worker entered at 12:30, at 13:00 their exposure is 30 minutes, not 60.
     """
     b = _dt(breach_started_at)
     entered, field_name = worker_entered_at(worker)
@@ -185,7 +186,7 @@ def exposure_window(worker: dict, breach_started_at: datetime | Any, now: dateti
 
 
 def staleness_minutes(worker: dict, now: datetime, cap: float | None = None) -> float:
-    """Son güvenilir sinyalin üstünden geçen dakika. Hiç sinyal yoksa cap (ya da sonsuz) sayılır."""
+    """Minutes since the last trustworthy signal. With no signal at all, counts as cap (or infinity)."""
     stale = _minutes_between(_dt(worker.get("last_signal_at")), now)
     if stale is None:
         return float(cap) if cap is not None else math.inf
@@ -196,18 +197,18 @@ def staleness_minutes(worker: dict, now: datetime, cap: float | None = None) -> 
 def exposure_detail(worker: dict, breach_started_at: datetime | Any, now: datetime, cfg: Config, severity: float = 1.0) -> Decision:
     """score = severity × exposure_minutes × staleness × vulnerability (idea capture §8, Move 2).
 
-    severity SAHA özelliğidir (WBGT tüm şantiyede aynıdır) — bilerek işçi başına değişmez.
-    Diğer üç bileşen işçi bazındadır: maruziyet penceresi, sinyal bayatlığı, kırılganlık.
+    severity is a SITE property (WBGT is the same across the whole construction site) — deliberately not per worker.
+    The other three components are per worker: exposure window, signal staleness, vulnerability.
     """
     b = _dt(breach_started_at)
     start, exposure_min, src, why = exposure_window(worker, b, now)
     last = _dt(worker.get("last_signal_at"))
     cap = cfg.distress.staleness_cap_minutes
     stale_min = staleness_minutes(worker, now, cap)
-    staleness = 1.0 + stale_min / 10.0  # 0 dk → 1.0 ; 30 dk → 4.0
+    staleness = 1.0 + stale_min / 10.0  # 0 min → 1.0 ; 30 min → 4.0
     vul, vex = vulnerability_weight(worker, now, cfg)
-    # Mevcudiyet önseli: şebekede hiç görülmemiş bir işçinin sahada OLDUĞU kesin değil.
-    # Kuyruktan düşürmüyoruz (bilinmeyen güvende değildir) ama maruziyetini olasılıkla ölçüyoruz.
+    # Presence prior: it is not certain that a worker never seen on the network IS on site.
+    # We do not drop them from the queue (the unknown is not safe) but we weight their exposure by a probability.
     prior = float(worker.get("presence_prior", 1.0) or 1.0)
     effective_exposure = exposure_min * prior
     score = severity * effective_exposure * staleness * vul
@@ -237,10 +238,10 @@ def exposure_score(worker: dict, breach_started_at: datetime | Any, now: datetim
     return exposure_detail(worker, breach_started_at, now, cfg, severity).risk_score
 
 
-# ----------------------------------------------------------------------------- 3) doğrulama planı
+# ----------------------------------------------------------------------------- 3) verification plan
 @dataclass
 class Action:
-    """Planlanmış tek API çağrısı. api: location_verify | reachability | location_retrieve | congestion_query"""
+    """A single planned API call. api: location_verify | reachability | location_retrieve | congestion_query"""
 
     worker: dict
     api: str
@@ -248,7 +249,7 @@ class Action:
     rank: int
     cost: int = 1
     pool: str = "main"           # main | reserve
-    freshness: str | None = None  # location_verify icin "loose" (onbellek kabul) | "strict" (taze fix)
+    freshness: str | None = None  # for location_verify: "loose" (accept cache) | "strict" (fresh fix)
     explain: list[Explain] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -258,19 +259,19 @@ class Action:
 
 
 def _next_step_for(worker: dict, now: datetime, cfg: Config) -> tuple[str, str, str | None] | None:
-    """Maliyet merdiveni — TAZELİK ekseninde (operatör geri bildirimi, 9 Eylül 2026).
+    """Cost ladder — on the FRESHNESS axis (operator feedback, 9 September 2026).
 
-      1. geofence olayları           push, sorgu yok            (bu fonksiyonun dışında)
-      2. location_verify / loose     önbellek cevabı kabul      ucuz: veritabanı okuması
-      3. location_verify / strict    taze fix zorlar            pahalı: paging + RRC + ölçüm
-      4. location_retrieve           koordinat, escalated sonrası — gerekçesi MALİYET DEĞİL GİZLİLİK
+      1. geofence events             push, no query             (outside this function)
+      2. location_verify / loose     accept a cached answer     cheap: a database read
+      3. location_verify / strict    forces a fresh fix         expensive: paging + RRC + measurement
+      4. location_retrieve           coordinate, after escalation — the reason is PRIVACY, NOT COST
 
-    Eski merdiven "hüküm ucuz, koordinat pahalı" varsayımına dayanıyordu. Şebekede maliyeti
-    belirleyen şey ne döndürüldüğü değil, talep edilen tazeliktir: önbellekten cevaplanabilen bir
-    Retrieval da ucuzdur. Dördüncü basamağın yerini artık gizlilik korur — ve o gerekçe tek başına
-    zaten yeterlidir; maliyet argümanına yaslanmasına gerek yok.
+    The old ladder rested on the assumption "a verdict is cheap, a coordinate is expensive". What sets the
+    cost on the network is not what is returned but the requested freshness: a Retrieval that can be
+    answered from cache is cheap too. The fourth rung's place is now held by privacy — and that reason
+    alone is already sufficient; it does not need to lean on a cost argument.
 
-    Dönen: (api, gerekçe, tazelik) — tazelik yalnızca location_verify için "loose" | "strict".
+    Returns: (api, reason, freshness) — freshness is "loose" | "strict" only for location_verify.
     """
     if worker.get("cleared"):
         return None
@@ -281,7 +282,8 @@ def _next_step_for(worker: dict, now: datetime, cfg: Config) -> tuple[str, str, 
     v_at = _dt(worker.get("last_verified_at"))
     fresh = v_at is not None and (_minutes_between(v_at, now) or 0) <= cfg.budget.reverify_minutes
     if worker.get("verified_inside") is not True or not fresh:
-        # Ucuz cevap zaten denenip belirsiz döndüyse (UNKNOWN / PARTIAL) bir basamak çık: taze fix iste.
+        # If the cheap answer was already tried and came back ambiguous (UNKNOWN / PARTIAL), climb a rung:
+        # ask for a fresh fix.
         if v_at is not None and worker.get("verified_inside") is None:
             return ("location_verify",
                     "the cached answer was ambiguous → demand a fresh fix (rung 3: forces a positioning procedure)",
@@ -299,21 +301,21 @@ def _next_step_for(worker: dict, now: datetime, cfg: Config) -> tuple[str, str, 
 def plan_verification(workers_without_exit: list[dict], budget: int, cfg: Config, now: datetime | None = None,
                       presumed_safe: list[dict] | None = None,
                       breach_started_at: datetime | Any = None) -> list[Action]:
-    """Skora göre sıralı, bütçeyle kesilmiş çağrı listesi (idea capture §8).
+    """Call list ranked by score and cut by the budget (idea capture §8).
 
-    workers_without_exit: her biri "score" içeren sinyal sözlükleri (exposure_score ile hesaplanmış).
-    budget: bu dakika kalan sorgu hakkı. reserve_ratio kadarı presumed_safe yeniden kontrolüne ayrılır.
+    workers_without_exit: signal dicts, each containing a "score" (computed with exposure_score).
+    budget: query allowance remaining this minute. A reserve_ratio share is set aside for presumed_safe re-checks.
     """
     now = now or datetime.now(timezone.utc)
     budget = max(0, int(budget))
     reserve = int(math.ceil(budget * cfg.budget.reserve_ratio)) if budget else 0
     usable = budget - reserve
-    # Eşit skorda TIEBREAK: en bayat sinyal önce (bilgi kazancı en yüksek olan işçi).
-    # Eskiden burada maskeli telefon vardı — alfabetik sıra bir güvenlik gerekçesi değildir;
-    # skorlar eşitlendiğinde ajanın "en riskliyi öne alır" iddiası fiilen alfabeye düşüyordu.
-    # Maskeli numara yalnızca SON çare olarak kalır (aynı skor + aynı bayatlık → determinizm).
+    # TIEBREAK on equal score: stalest signal first (the worker with the highest information gain).
+    # Previously the masked phone was here — alphabetical order is not a safety rationale;
+    # when scores tied, the agent's claim to "put the riskiest first" effectively fell back to the alphabet.
+    # The masked number remains only as the LAST resort (same score + same staleness → determinism).
     def _unseen_this_breach(w: dict) -> bool:
-        """Bu ihlal boyunca bir kez bile sorgulanmis mi?"""
+        """Has this worker been queried even once during this breach?"""
         v = _dt(w.get("last_verified_at"))
         if v is None:
             return True
@@ -321,15 +323,15 @@ def plan_verification(workers_without_exit: list[dict], budget: int, cfg: Config
         return b is not None and v < b
 
     def _rank_key(w: dict) -> tuple:
-        stale = staleness_minutes(w, now)   # cap YOK: 45 dk gorulmeyen, 30 dk gorulmeyenin onunde
-        # ACLIK KORUMASI (olculdu: 400 iscide %80'i BIR KEZ BILE sorgulanmiyordu).
-        # Bayatlik 30 dakikada tavan yapinca herkesin bayatligi doyuyor ve siralamayi yalnizca
-        # kirilganlik belirliyor — ayni kohort her taramada kazaniyor. Urunun kendi cumlesi
-        # "yirmi dakikadir gorulmeyen beklemesin" diyordu; kod bunu olcekte yapmiyordu.
-        # Bu yuzden sert kisit: bu ihlal boyunca HIC sorgulanmamis isci, sorgulanmisin onune gecer.
-        # ESKALASYON ONCE: saglikcinin kosacagi koordinat, hic sorgulanmamis isciler bitene kadar
-        # beklemez. 40 kisilik bir sahada o cagri planin disinda kaliyordu (olculdu).
-        # Butce yine asilmaz; koordinat kapisi yine tek seferlik (bkz. _next_step_for).
+        stale = staleness_minutes(w, now)   # NO cap: unseen for 45 min goes ahead of unseen for 30 min
+        # STARVATION GUARD (measured: with 400 workers, 80% were NOT queried EVEN ONCE).
+        # When staleness caps out at 30 minutes, everyone's staleness saturates and the ranking is decided
+        # by vulnerability alone — the same cohort wins every sweep. The product's own sentence said
+        # "nobody unseen for twenty minutes should have to wait"; the code did not do that at scale.
+        # Hence a hard constraint: a worker NEVER queried during this breach goes ahead of one already queried.
+        # ESCALATION FIRST: the coordinate the medic will run to does not wait until the never-queried
+        # workers are done. On a 40-person site that call was being left outside the plan (measured).
+        # The budget is still not exceeded; the coordinate gate is still one-time (see _next_step_for).
         if w.get("escalated") and not w.get("location_retrieved"):
             tier = 0
         else:
@@ -346,7 +348,7 @@ def plan_verification(workers_without_exit: list[dict], budget: int, cfg: Config
             continue
         api, why, freshness = step
         if spent + 1 > usable:
-            break  # bütçe bitti → liste bitmedi ama dururuz (Move 2)
+            break  # budget exhausted → the list is not done but we stop (Move 2)
         spent += 1
         score = round(w.get("score") or 0.0, 2)
         stale = staleness_minutes(w, now)
@@ -373,7 +375,7 @@ def plan_verification(workers_without_exit: list[dict], budget: int, cfg: Config
                               "Rung 2 accepts a cached answer - cheap for the network, a database read",
                               source="rules", triggered=(freshness == "strict")))
         actions.append(Action(w, api, why, rank, 1, "main", freshness, ex))
-    # rezerv: presumed-safe (çıkış olayı var) işçilerden en bayat olanları yeniden doğrula (bayat çıkış = sessiz hata modu)
+    # reserve: re-verify the stalest presumed-safe workers (those with an exit event) (a stale exit = silent failure mode)
     if presumed_safe and reserve:
         safe_ranked = sorted(presumed_safe, key=lambda w: (_dt(w.get("last_signal_at")) or datetime.min.replace(tzinfo=timezone.utc)))
         for i, w in enumerate(safe_ranked[:reserve], start=1):
@@ -383,12 +385,12 @@ def plan_verification(workers_without_exit: list[dict], budget: int, cfg: Config
     return actions
 
 
-# ----------------------------------------------------------------------------- 4) bayılma vs bitmiş pil
+# ----------------------------------------------------------------------------- 4) collapse vs dead battery
 def classify_unreachable(worker: dict, neighbours_reachable: int, neighbours_unreachable: int, congestion_level: str | None,
                          device_history: dict | None, last_verified_moving_out: bool, cfg: Config | None = None) -> dict:
-    """Erişilemeyen cihaz: bayılma mı, ağ mı, pil mi, çıkış mı? (idea capture §9)
+    """Unreachable device: collapse, network, battery or exit? (idea capture §9)
 
-    Döner: {"verdict", "confidence", "explain", "decision"}.
+    Returns: {"verdict", "confidence", "explain", "decision"}.
     """
     cfg = cfg or Config()
     d = cfg.distress
@@ -440,9 +442,9 @@ def classify_unreachable(worker: dict, neighbours_reachable: int, neighbours_unr
     return {"verdict": verdict, "confidence": conf, "explain": ex, "decision": dec}
 
 
-# ----------------------------------------------------------------------------- 5) eskalasyon
+# ----------------------------------------------------------------------------- 5) escalation
 def escalate(verdict: str, confidence: float, cfg: Config | None = None, congestion_level: str | None = None) -> Decision:
-    """verdict + güven → aksiyon listesi. Sadece hayatta kalan vakalar insana gider (alarm yorgunluğu yok)."""
+    """verdict + confidence → action list. Only the cases that survive go to a human (no alarm fatigue)."""
     cfg = cfg or Config()
     ex: list[Explain] = []
     actions: list[str] = []
@@ -458,9 +460,10 @@ def escalate(verdict: str, confidence: float, cfg: Config | None = None, congest
         rule = "collapse_low_confidence"
         note = f"Probable collapse but confidence is low ({confidence:.2f}) → recheck on the next sweep"
     elif verdict == "prolonged_exposure":
-        # Cihaz SUSMADI; isci hala ICERIDE ve yasal esik uzun suredir asili. Butun sikinti
-        # cikarimimiz sessizligi okuyor, ama telefonu cebinde ve sarji dolu bir isci de
-        # bayilabilir — sebeke bunu hic gormez. Kanun ise zaten isin DURMASINI emrediyor.
+        # The device did NOT GO SILENT; the worker is still INSIDE and the legal threshold has been exceeded
+        # for a long time. All our distress inference reads silence, but a worker with the phone in their
+        # pocket and fully charged can also collapse — the network never sees it. And the law already
+        # orders work to STOP.
         actions = ["notify_supervisor", "log_only"]
         rule = "prolonged_exposure"
         note = ("Still verified inside a breached zone well past the legal stop-work point. The device is "

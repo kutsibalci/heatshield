@@ -6,14 +6,14 @@ from typing import Any
 
 @dataclass
 class Explain:
-    """Tek bir sinyalin karara katkısı."""
+    """A single signal's contribution to the decision."""
 
-    signal: str          # ör. "number_recycling"
-    value: Any           # API'nin döndürdüğü (veya türetilen) değer
-    weight: float        # 0..1 — karara etkisi
-    note: str            # insan-okur açıklama (TR)
-    source: str = ""     # api adı / fixture / simulator / live
-    triggered: bool = False  # bu sinyal bir kuralı tetikledi mi
+    signal: str          # e.g. "number_recycling"
+    value: Any           # the value the API returned (or a derived one)
+    weight: float        # 0..1 — its effect on the decision
+    note: str            # human-readable explanation
+    source: str = ""     # api name / fixture / simulator / live
+    triggered: bool = False  # did this signal trigger a rule
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -21,11 +21,11 @@ class Explain:
 
 @dataclass
 class Decision:
-    """Genel karar zarfı. Projeler kendi `decision` sözlüğünü kullanır."""
+    """Generic decision envelope. Projects use their own `decision` vocabulary."""
 
     decision: str
     risk_score: float = 0.0
-    rule: str = ""                    # tetiklenen kuralın adı
+    rule: str = ""                    # name of the rule that fired
     explain: list[Explain] = field(default_factory=list)
     actions: list[str] = field(default_factory=list)
     meta: dict = field(default_factory=dict)

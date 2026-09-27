@@ -13,9 +13,9 @@ main{padding:24px 28px;max-width:1600px;margin:0 auto}
 button{background:var(--accent);color:#04121c;border:0;border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer}button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}button:disabled{opacity:.5;cursor:default}
 .explain{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px}
 .explain h4{margin:0 0 6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
-/* Kart daralinca satir SARSIN; sabit 150px sig + esnek val, dar kartta degeri
-   harf harf dikey diziyordu (juri ekraninda okunmuyordu). flex-basis 150px ile
-   val kendi satirina iner, kirilma karakter bazinda olmaz. */
+/* When the card narrows, the row should WRAP; a fixed 150px sig + flexible val laid
+   the value out vertically letter by letter on a narrow card (unreadable on the jury screen). With
+   flex-basis 150px, val drops to its own line and breaking is not per character. */
 .explain li{font-size:13px;margin:4px 0;list-style:none;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:flex-start}
 .explain li .sig{font-family:ui-monospace,Consolas,monospace;color:var(--accent);flex:0 0 118px}
 .explain li .val{flex:1 1 300px;min-width:0;overflow-wrap:break-word;line-height:1.55}
@@ -37,11 +37,11 @@ pre{background:#0b0f18;border:1px solid var(--line);border-radius:10px;padding:1
 @media (max-width:600px){main{padding:16px 12px}header{flex-direction:column;align-items:flex-start;padding:16px 12px}header h1{font-size:17px}.grid{grid-template-columns:1fr}.toolbar button{width:100%}}
 
 /* ============================================================================
-   Gorsel duzenleme — 13 Eylul 2026.
-   Amac: veriyi one, aciklamayi geriye almak. Denetimde "hiyerarsi duz, aciklama
-   metni veriyle yarisiyor" bulgusu vardi. Bu blok mevcut kurallari EZDIGI icin
-   !important tasiyor; yeniden yazmak yerine ustune yazmak teslim gunu icin daha
-   guvenli goruldu. Davranis degismez, yalniz tipografi ve bosluk.
+   Visual cleanup — 13 September 2026.
+   Goal: bring the data forward and push the explanation back. The audit found
+   "the hierarchy is flat, explanatory text competes with the data". This block
+   carries !important because it OVERRIDES the existing rules; overriding instead of
+   rewriting was judged safer for delivery day. Behaviour is unchanged, only typography and spacing.
    ========================================================================== */
 header h1{ font-size:21px !important; letter-spacing:-.2px; margin-bottom:2px !important; }
 header .small, header #healthLine, header #schedLine{
@@ -50,8 +50,8 @@ header{ padding-top:10px !important; padding-bottom:12px !important; }
 
 .card .lbl, .lbl{ font-size:10.5px !important; letter-spacing:.16em !important;
   color:#8FA3BC !important; font-weight:600 !important; }
-/* .val kurali kaldirildi: explain[] satirlari da .val kullaniyor, hepsini devlestiriyordu.
-   Sicaklik degeri artik .strip .temp ile boyutlaniyor (index.html). */
+/* The .val rule was removed: explain[] rows use .val too, and it was blowing them all up.
+   The temperature value is now sized via .strip .temp (index.html). */
 #qTotal{ font-size:40px !important; line-height:1.05 !important; font-weight:700 !important;
   letter-spacing:-1px !important; display:block; margin-bottom:2px; }
 

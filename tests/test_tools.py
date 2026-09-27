@@ -1,7 +1,7 @@
-"""tools/ korumaları — araçlar ÇALIŞTIRILMADAN, kaynakları ayrıştırılarak sınanır.
+"""tools/ guards — tested WITHOUT RUNNING the tools, by parsing their sources.
 
-Bir araç çalıştırılırsa ve üst klasörde gerçek anahtarlı bir `.env` varsa canlı çağrı yapar.
-Bu yüzden test, aracın kodunu yalnızca okur.
+If a tool is run and there is a `.env` with real keys in the parent folder, it makes a live call.
+That is why the test only reads the tool's code.
 """
 import ast
 from pathlib import Path
@@ -19,7 +19,7 @@ def _is_guard(node: ast.stmt) -> bool:
 
 
 def _first_real_statement(body: list[ast.stmt]) -> ast.stmt:
-    """Belge dizesini atlayarak ilk ifade."""
+    """The first statement, skipping the docstring."""
     for node in body:
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
             continue
@@ -33,7 +33,7 @@ def test_live_tools_refuse_to_run_without_the_live_flag(name):
     main = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main"), None)
     if main is not None:
         assert _is_guard(_first_real_statement(main.body)), f"{name}: main() must start with require_live_flag()"
-    else:   # betik biçimindeki araç: koruma, ilk çağrıdan (load_env) önce gelir
+    else:   # script-style tool: the guard comes before the first call (load_env)
         calls = [n for n in tree.body if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)]
         assert calls and _is_guard(calls[0]), f"{name}: require_live_flag() must be the first call"
 

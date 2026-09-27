@@ -1,8 +1,8 @@
-"""Modelin GERCEK gecikmesi ve basari orani. Tahmin degil, olcum.
+"""The model's REAL latency and success rate. A measurement, not an estimate.
 
-Guvenlik butcemiz 6 saniye: bir yeniden siralayici bundan uzun surerse terk edilir ve kurallar
-calisir. Bu butcenin dogru olup olmadigini bilmek icin modelin gercekte ne kadar surdugunu ve
-ne siklikta cevap verdigini olcmek gerekir.
+Our safety budget is 6 seconds: if a re-ranker takes longer than that, it is abandoned and the rules
+run. To know whether this budget is right, we need to measure how long the model actually takes and
+how often it answers.
 """
 import json
 import os
@@ -15,7 +15,7 @@ from _common import evidence_file, load_env, require_live_flag
 
 require_live_flag("Planner latency / success-rate measurement against Gemini / Groq.")
 load_env()
-os.environ["HS_PLANNER_TIMEOUT_S"] = "60"        # olcum icin genis; uretim butcesi ayri
+os.environ["HS_PLANNER_TIMEOUT_S"] = "60"        # generous for measurement; the production budget is separate
 
 from agent.llm_adapter import get_planner          # noqa: E402
 from rules.heatshield import Action               # noqa: E402
@@ -28,7 +28,7 @@ plan = [Action({"worker_id": f"W-{i:03d}", "masked": f"+99999***{i:04d}", "score
                "location_verify", "no exit event", i) for i in range(1, 13)]
 snap = {"wbgt_c": 35.6, "legal_limit_c": 32.1, "workers_in_plan": len(plan), "budget_per_sweep": 20}
 
-p = get_planner()   # zincir varsa zinciri olceriz — uretimde calisan sey bu
+p = get_planner()   # if there is a chain we measure the chain — that is what runs in production
 print(f"Model: {p.name}   ornek: {N} cagri\n")
 rows = []
 for i in range(1, N + 1):

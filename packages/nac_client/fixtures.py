@@ -1,17 +1,17 @@
-"""FixtureBackend — Nokia SIMULATOR'ün yerel taklidi.
+"""FixtureBackend — a local imitation of the Nokia SIMULATOR.
 
-Profil (telefon başına) → CAMARA biçiminde yanıt üretir. Hem NacClient'ın `fixture` modu hem de
-`apps/simulator` HTTP mock sunucusu bu sınıfı kullanır; böylece tek fixture seti iki yerde de aynı davranır.
+Profile (per phone) → produces responses in CAMARA format. Both NacClient's `fixture` mode and the
+`apps/simulator` HTTP mock server use this class, so a single fixture set behaves the same in both places.
 
-Profil alanları (hepsi opsiyonel, DEFAULT_PROFILE ile birleşir):
-  recycled_date        "YYYY-MM-DD" | None   numara bu tarihte yeni aboneye tahsis edildi
-  tenure_since         "YYYY-MM-DD"          mevcut abonenin hattı aldığı tarih
+Profile fields (all optional, merged with DEFAULT_PROFILE):
+  recycled_date        "YYYY-MM-DD" | None   the number was assigned to a new subscriber on this date
+  tenure_since         "YYYY-MM-DD"          date the current subscriber got the line
   contract_type        PAYG | PAYM | Business
   age_check            "true" | "false" | "not_available"
-  verified_status      bool                  operatör kimliği belgeyle doğruladı mı
+  verified_status      bool                  whether the operator verified identity with a document
   kyc                  {name, given_name, family_name, birthdate, address, email, id_document}
-  number_verified      bool                  Number Verification cevabı
-  device_phone_number  str | None            cihazın gerçek numarası (verify: eşitlik kontrolü için)
+  number_verified      bool                  Number Verification answer
+  device_phone_number  str | None            the device's real number (verify: for the equality check)
   sim_swap_at          ISO datetime | None
   device_swap_at       ISO datetime | None
   call_forwarding      ["inactive"] | ["unconditional"] | ["conditional_busy", ...]
@@ -20,9 +20,9 @@ Profil alanları (hepsi opsiyonel, DEFAULT_PROFILE ile birleşir):
   location             {"lat":..,"lng":..,"radius":..} | None   (None → location UNKNOWN)
   congestion           Low | Medium | High
   qod_available        bool
-  consent              {"<scope>": "valid" | "PENDING" | "REVOKED"} (varsayılan: hepsi valid)
-  latency_ms           int                   yapay gecikme (demo: yavaş API)
-  fail                 None | "timeout" | 500 | 429 | 403   hata enjeksiyonu (demo: circuit breaker)
+  consent              {"<scope>": "valid" | "PENDING" | "REVOKED"} (default: all valid)
+  latency_ms           int                   artificial latency (demo: slow API)
+  fail                 None | "timeout" | 500 | 429 | 403   error injection (demo: circuit breaker)
 """
 from __future__ import annotations
 
@@ -87,12 +87,12 @@ def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 
 def _public(sub: dict) -> dict:
-    """Aboneliğin dışarı gösterilen hali: iç alanlar (tür, bildirim anahtarı) çıkarılır."""
+    """The externally shown form of a subscription: internal fields (kind, notification key) are removed."""
     return {k: v for k, v in sub.items() if k not in ("kind", "_sink_token")}
 
 
 class FixtureBackend:
-    """Telefon → profil deposu + CAMARA cevap üreticileri."""
+    """Phone → profile store + CAMARA response generators."""
 
     def __init__(self, profiles: dict[str, dict] | None = None, now: Callable[[], datetime] | None = None):
         self.profiles: dict[str, dict] = {}
@@ -102,7 +102,7 @@ class FixtureBackend:
         for phone, prof in (profiles or {}).items():
             self.set_profile(phone, prof)
 
-    # ---- profil yönetimi -------------------------------------------------
+    # ---- profile management ----------------------------------------------
     @classmethod
     def from_json(cls, path: str | Path, **kw) -> "FixtureBackend":
         data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -126,17 +126,17 @@ class FixtureBackend:
         return self._now()
 
     def set_clock(self, at: datetime | None) -> None:
-        """Yerel taklidin saatini disaridan hizala.
+        """Align the local imitation's clock from the outside.
 
-        Neden gerekli: fixture gercek duvar saatini yaziyordu, demo/test ise simule bir tarihte
-        kosuyor. Uretilen `lastLocationTime` damgalari simule `now`a gore GELECEKTEN geliyordu
-        ve canlilik probunun tazelik kontrolunu tamamen etkisiz kiliyordu (denetim bulgusu K1).
-        Yerel taklit, taklit ettigi dunyanin saatini kullanmali.
+        Why it is needed: the fixture was writing the real wall-clock time, while the demo/tests run at a
+        simulated date. The generated `lastLocationTime` stamps came FROM THE FUTURE relative to the simulated
+        `now` and made the liveness probe's freshness check completely ineffective (audit finding K1).
+        The local imitation must use the clock of the world it imitates.
         """
         if at is not None:
             self._now = lambda: at
 
-    # ---- hata / gecikme enjeksiyonu (NacClient fixture modunda uygulanır) ----
+    # ---- error / latency injection (applied by NacClient in fixture mode) ----
     def preflight(self, api: str, phone: str | None) -> None:
         if not phone:
             return
@@ -148,7 +148,7 @@ class FixtureBackend:
             from .errors import error_from_status
             raise error_from_status(api, fail, "fixture: enjekte edilmiş hata")
 
-    # ---- CAMARA cevapları --------------------------------------------------
+    # ---- CAMARA responses -------------------------------------------------
     def number_recycling(self, phone: str, specified_date: str) -> dict:
         prof = self.get(phone)
         rd = _parse_date(prof.get("recycled_date"))
@@ -165,7 +165,7 @@ class FixtureBackend:
         prof = self.get(phone)
         since = _parse_date(prof.get("tenure_since"))
         td = _parse_date(tenure_date)
-        # tenureDateCheck: abone, tenureDate'ten beri (veya daha eskiden) bu hatta mı?
+        # tenureDateCheck: has the subscriber been on this line since tenureDate (or earlier)?
         return {"tenureDateCheck": bool(since and td and since <= td), "contractType": prof.get("contract_type")}
 
     def tenure_days(self, phone: str) -> int:
@@ -266,14 +266,15 @@ class FixtureBackend:
         loc = p.get("location")
         if not loc:
             return {"verificationResult": "UNKNOWN", "lastLocationTime": None}
-        # SIKI TAZELIK + ULASILAMAYAN CIHAZ: taze bir fix, sebekenin cihazi SAYFALAMASINI gerektirir.
-        # Kapali ya da menzil disindaki bir cihaz sayfalamaya cevap veremez, dolayisiyla taze konum
-        # da uretemez. Fixture bunu modellemezse "canlilik probu" anlamsizlasir — kapali telefon
-        # canli gorunur. Gevsek tazelikte ise onbellekteki son konum donebilir, bu gercekcidir.
+        # STRICT FRESHNESS + UNREACHABLE DEVICE: a fresh fix requires the network to PAGE the device.
+        # A device that is off or out of range cannot answer paging, and therefore cannot produce a
+        # fresh location either. If the fixture does not model this, the "liveness probe" becomes
+        # meaningless — a switched-off phone looks alive. With loose freshness, the cached last
+        # location may be returned; that is realistic.
         strict = max_age is not None and max_age <= 120
-        # `stale_reachability`: cihaz ASLINDA canli, ama device-status bayat bir "erisilemez"
-        # okumasi donduruyor (periyodik kayit zamanlayicisi henuz guncellenmedi). Taze fix
-        # istegi bu cihazi sayfalar ve CEVAP ALIR — canlilik probunun tam olarak yakaladigi durum.
+        # `stale_reachability`: the device is ACTUALLY alive, but device-status returns a stale
+        # "unreachable" reading (the periodic registration timer has not updated yet). A fresh-fix
+        # request pages this device and GETS AN ANSWER — exactly the case the liveness probe catches.
         if strict and p.get("reachable") is False and not p.get("stale_reachability"):
             return {"verificationResult": "UNKNOWN", "lastLocationTime": None}
         d = haversine_m(loc["lat"], loc["lng"], lat, lng)
@@ -314,7 +315,7 @@ class FixtureBackend:
             })
         return {"statusInfo": info, "captureUrl": None if all(i["statusValidForProcessing"] for i in info) else "https://consent.example/capture"}
 
-    # ---- abonelikler / QoD -------------------------------------------------
+    # ---- subscriptions / QoD ----------------------------------------------
     def create_subscription(self, kind: str, body: dict) -> dict:
         sid = str(uuid.uuid4())
         sub = {
@@ -327,7 +328,7 @@ class FixtureBackend:
             "startsAt": self.now().isoformat(),
             "expiresAt": (body.get("config") or {}).get("subscriptionExpireTime"),
             "status": "ACTIVE",
-            # Bildirim gönderilirken Bearer olarak kullanılır (CAMARA sinkCredential); yanıtlarda görünmez.
+            # Used as the Bearer when sending notifications (CAMARA sinkCredential); not shown in responses.
             "_sink_token": (body.get("sinkCredential") or {}).get("accessToken"),
         }
         self.subscriptions[sid] = sub
@@ -379,7 +380,7 @@ class FixtureBackend:
     def qod_list(self, phone: str) -> list[dict]:
         return [s for s in self.qod_sessions.values() if s["device"]["phoneNumber"] == phone]
 
-    # ---- CloudEvents üretimi (simülatörün webhook tetiklemesi için) --------
+    # ---- CloudEvents generation (for the simulator's webhook triggering) ---
     def cloud_event(self, event_type: str, subscription_id: str, phone: str, extra: dict | None = None) -> dict:
         return {
             "id": str(uuid.uuid4()),
@@ -398,7 +399,7 @@ def _camel(snake: str) -> str:
 
 
 def _fuzzy(a: str, b: str) -> int:
-    """Basit benzerlik: ortak karakter oranı (0-100). Prototip için yeterli."""
+    """Simple similarity: shared-character ratio (0-100). Good enough for the prototype."""
     a, b = a.lower(), b.lower()
     if not a or not b:
         return 0

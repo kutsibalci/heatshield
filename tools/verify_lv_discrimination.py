@@ -1,14 +1,14 @@
-"""Location Verification sandbox'ta alanı gerçekten dikkate alıyor mu?
+"""Does Location Verification in the sandbox actually take the area into account?
 
-`measure_partial.py` 100 m - 5 km aralığında hep FALSE buldu. Bu betik uç durumları
-ölçüp KAYDA GEÇİRİR: cihazın kendi koordinatı etrafında 50 km ve 200 km, tamamen başka
-bir şehir, ve merkezi hafifçe kaydırılmış bir daire.
+`measure_partial.py` found FALSE throughout the 100 m - 5 km range. This script measures and
+RECORDS the edge cases: 50 km and 200 km around the device's own coordinate, a completely different
+city, and a circle with a slightly shifted centre.
 
-Hepsi FALSE dönerse sonuç şudur: sandbox'ta bu uç talep edilen alandan bağımsız cevap
-veriyor. Taşıma katmanı ve şema kanıtlanır, karar mantığı kanıtlanmaz — ve PARTIAL oranı
-orada ölçülemez.
+If all return FALSE, the conclusion is: in the sandbox this endpoint answers independently of the
+requested area. The transport layer and schema are proven, the decision logic is not — and the PARTIAL
+rate cannot be measured there.
 
-Çalıştırma (depo kökünden):  python tools/verify_lv_discrimination.py
+Run (from the repo root):  python tools/verify_lv_discrimination.py
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from _common import evidence_file, load_env, require_live_flag  # noqa: E402  (depo kökü + paket yolu)
+from _common import evidence_file, load_env, require_live_flag  # noqa: E402  (repo root + package path)
 from nac_client import NacClient, NacConfig, NacError  # noqa: E402
 
 OUT = evidence_file("lv-discrimination")
@@ -33,7 +33,7 @@ def main() -> None:
     c = NacClient(NacConfig.from_env())
     phone = os.environ["NAC_PROBE_PHONE"]
 
-    # maxAge ZORUNLU — parametresiz cagri 422 donuyor. Bunu da kayda geciriyoruz.
+    # maxAge is MANDATORY — a call without it returns 422. We record this too.
     missing_max_age = None
     try:
         c.location_retrieve(phone)

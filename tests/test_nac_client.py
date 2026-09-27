@@ -1,4 +1,4 @@
-"""nac_client çekirdek testleri: fixture modu, retry/circuit breaker, maskeleme, simülatör HTTP yolu."""
+"""nac_client core tests: fixture mode, retry/circuit breaker, masking, simulator HTTP path."""
 from datetime import datetime, timezone
 
 import pytest
@@ -44,7 +44,7 @@ def test_call_forwarding_and_sim_swap(client):
 
 
 def test_kyc(client):
-    assert client.kyc_tenure("+905551110001", "2026-01-01").data["tenureDateCheck"] is False  # hat 30 Haziran'da alındı, Ocak'tan beri değil
+    assert client.kyc_tenure("+905551110001", "2026-01-01").data["tenureDateCheck"] is False  # line was acquired on 30 June, not since January
     assert client.kyc_tenure("+905551110001", "2026-08-01").data["tenureDateCheck"] is True
     assert client.kyc_age("+905551110001", 18).data["ageCheck"] == "false"
     assert client.kyc_age("+905559999999", 18).data["ageCheck"] == "true"
@@ -66,14 +66,14 @@ def test_retry_then_circuit_opens(client):
     with pytest.raises(NacError) as e:
         client.reachability("+905551110002")
     assert e.value.kind == "server"
-    # breaker_threshold=2 → ilk çağrı 1+1 retry = 2 hata → devre açık
+    # breaker_threshold=2 → first call 1+1 retry = 2 failures → circuit open
     with pytest.raises(NacCircuitOpen):
         client.reachability("+905551110002")
     assert client.health()["breaker"]["device-reachability-status"]["open"] is True
 
 
 def test_simulator_http_roundtrip():
-    """NacClient (simulator modu) → yerel simülatör (TestClient) → aynı fixture; gerçek path'ler doğrulanır."""
+    """NacClient (simulator mode) → local simulator (TestClient) → same fixture; the real paths are verified."""
     import simulator.main as sim
     sim.fx = FixtureBackend(PROFILES, now=lambda: NOW)
     http = TestClient(sim.app, base_url="http://sim")
@@ -91,7 +91,7 @@ def test_simulator_http_roundtrip():
 
 
 def test_bad_input_does_not_open_the_circuit_for_everyone():
-    """Tek bir hatalı numara (400) bir kesinti değildir; devre açılıp herkesi kör etmemeli."""
+    """A single bad number (400) is not an outage; the circuit must not open and blind everyone."""
     profiles = {"+99999910001": {"fail": 400}, "+99999910002": {}}
     c = NacClient(NacConfig(mode="fixture", retries=0, breaker_threshold=2, breaker_cooldown_s=60),
                   fixtures=FixtureBackend(profiles, now=lambda: NOW))
@@ -107,12 +107,12 @@ def test_half_open_lets_exactly_one_probe_through():
     br = CircuitBreaker(failure_threshold=1, cooldown_s=60)
     br.failure("x")
     with pytest.raises(NacCircuitOpen):
-        br.before("x")                      # bekleme süresi dolmadı
-    br._states["x"].opened_at -= 61         # bekleme süresi doldu
-    br.before("x")                          # tek deneme izni
+        br.before("x")                      # cooldown not yet elapsed
+    br._states["x"].opened_at -= 61         # cooldown elapsed
+    br.before("x")                          # a single probe allowed
     with pytest.raises(NacCircuitOpen):
-        br.before("x")                      # deneme sonuçlanmadan ikinci çağrı geçmez
+        br.before("x")                      # a second call does not pass before the probe resolves
     br._states["x"].probe_at -= 61
-    br.before("x")                          # hiç sonuçlanmayan deneme devreyi sonsuza kilitlemez
+    br.before("x")                          # a probe that never resolves does not lock the circuit forever
     br.success("x")
-    br.before("x")                          # başarılı deneme devreyi kapatır
+    br.before("x")                          # a successful probe closes the circuit

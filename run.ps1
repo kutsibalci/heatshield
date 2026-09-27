@@ -1,8 +1,8 @@
-# Tek tuşla demo: simülatör + API'yi başlatır (NAC_MODE=simulator). Fixture modu için: .\run.ps1 -Mode fixture
+# One-click demo: starts the simulator + API (NAC_MODE=simulator). For fixture mode: .\run.ps1 -Mode fixture
 param([string]$Mode = "simulator", [int]$ApiPort = 8000, [int]$SimPort = 8081)
 $py = "python"
 $env:NAC_MODE = $Mode
-if (-not $env:HS_DEMO_MODE) { $env:HS_DEMO_MODE = "1" }   # yerel demo: altı senaryo açık (canlı modda reddedilir)
+if (-not $env:HS_DEMO_MODE) { $env:HS_DEMO_MODE = "1" }   # local demo: the six scenarios are enabled (rejected in live mode)
 $env:NAC_FIXTURE_PATH = "$PSScriptRoot\fixtures\profiles.json"
 if ($Mode -eq "simulator") {
   $env:NAC_BASE_URL = "http://127.0.0.1:$SimPort"

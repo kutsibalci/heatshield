@@ -1,21 +1,21 @@
-"""HeatShield ajan politikası — deterministik tarama (sweep) motoru.
+"""HeatShield agent policy — the deterministic sweep engine.
 
-Idea capture §5.2 (eskalasyon merdiveni), §8 (doğrulama bütçesi) ve §9 (bayılma vs bitmiş pil) burada
-çalışan koda dönüşür. Karar mantığı `packages/rules` içindeki SAF fonksiyonlardadır; bu dosya yalnızca
-sırayı, durumu ve Nokia çağrılarını yönetir.
+Idea capture §5.2 (escalation ladder), §8 (verification budget) and §9 (collapse vs dead battery) become
+running code here. The decision logic lives in the PURE functions in `packages/rules`; this file only
+manages the ordering, the state and the Nokia calls.
 
-Tek giriş noktası:  `step(site, now, nac_facade, cfg, wbgt_c=None) -> dict`  (bir tarama = bir rapor)
+Single entry point:  `step(site, now, nac_facade, cfg, wbgt_c=None) -> dict`  (one sweep = one report)
 
-Üç hamle (§8):
-  Move 1 — İhlal yoksa PARA HARCAMA. Geofence olayları şebeke tarafından ücretsiz itilir; sorgu yetkisi
-           yalnızca yasal eşik aşıldığında doğar (aynı zamanda amaç sınırlaması: gözetim aracına dönüşemez).
-  Move 2 — Sırala, tepeden harca. score = severity × exposure_minutes × staleness × vulnerability.
-           Bütçe bitince liste bitmese de DURULUR; kaç işçinin sorgulanmadığı rapora yazılır.
-  Move 3 — Maliyet merdivenini yalnızca ucuz sinyal belirsizse tırman:
-           location_verify (evet/hayır) → reachability → location_retrieve (yalnızca eskalasyon sonrası).
+Three moves (§8):
+  Move 1 — No breach, NO SPENDING. Geofence events are pushed by the network for free; query authority
+           arises only when the legal threshold is exceeded (also purpose limitation: it cannot become a surveillance tool).
+  Move 2 — Rank, spend from the top. score = severity × exposure_minutes × staleness × vulnerability.
+           When the budget runs out we STOP even if the list has not; how many workers went unqueried goes into the report.
+  Move 3 — Climb the cost ladder only if the cheap signal is ambiguous:
+           location_verify (yes/no) → reachability → location_retrieve (only after escalation).
 
-Gizlilik: ham telefon numarası yalnızca `WorkerRuntime.phone` içinde ve sadece NaC çağrısına gider.
-`to_dict()` asla ham numara döndürmez. Koordinat yalnızca "olası bayılma" vakası için, bir kez alınır.
+Privacy: the raw phone number lives only in `WorkerRuntime.phone` and goes only to the NaC call.
+`to_dict()` never returns the raw number. A coordinate is fetched only for a "probable collapse" case, once.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from rules.heatshield import STATES  # passive_watch | alert | confirming | dist
 __all__ = ["SiteRuntime", "WorkerRuntime", "step", "apply_geofence_event", "sweep_due", "STATES"]
 
 
-# --------------------------------------------------------------------------- yardımcılar
+# --------------------------------------------------------------------------- helpers
 def _iso(dt: datetime | None) -> str | None:
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if dt else None
 
@@ -46,38 +46,39 @@ def _dt(v: Any) -> datetime | None:
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
-# --------------------------------------------------------------------------- işçi
+# --------------------------------------------------------------------------- worker
 @dataclass
 class WorkerRuntime:
-    """Bir işçinin canlı durumu. `phone` ham tutulur (yalnızca NaC çağrısı); dışarı maskeli/hash çıkar."""
+    """A worker's live state. `phone` is kept raw (NaC call only); what goes out is masked/hashed."""
 
     worker_id: str
     phone: str
     name: str = ""
     micro_zone: str = "z1"
-    first_day_on_site: str | None = None      # ISO tarih — ilk hafta ağırlığı
+    first_day_on_site: str | None = None      # ISO date — first-week weight
     prior_incident: bool = False
     shift: str = "day"                        # day | night_to_day | transition
-    badge_in: bool = True                     # sabah turnike kaydı (§9A mutabakat)
+    badge_in: bool = True                     # morning turnstile record (§9A reconciliation)
 
-    # --- işveren kayıt alanları (karara GİRMEZ; ekranda ve defterde kimi konuştuğumuzu gösterir)
-    # Uyruk ve meslek skorlamada kullanılmaz: bir işçiyi uyruğuna göre sıralamak ayrımcılıktır ve
-    # ürünün tek sermayesi dürüstlüktür. Bunlar sağlıkçıya/vardiya amirine "kim, nerede, ne iş
-    # yapıyor" demek için vardır (ve kapsama metriğinin hangi işgücünde ölçüldüğünü gösterir).
+    # --- employer registry fields (they do NOT enter the decision; they show who we are talking about,
+    #     on screen and in the ledger)
+    # Nationality and trade are not used in scoring: ranking a worker by nationality is discrimination and
+    # the product's only capital is honesty. They exist to tell the medic/shift supervisor "who, where, doing
+    # what job" (and to show which workforce the coverage metric was measured on).
     nationality: str = ""
-    trade: str = ""                           # meslek: steel fixer, scaffolder, pipe fitter ...
-    crew: str = ""                            # ekip/gang adı — vardiya amiri bu birimi tanır
-    # `micro_zone` bir İŞVEREN ETİKETİDİR, konumdan türetilmez: ölçülen 1000 m konum belirsizliği
-    # 500 m çeperin mertebesinde olduğu için alt bölge şebekeden DOĞRULANAMAZ. `zone_label` o
-    # etiketin insan okunur adıdır (Marina District, Energy City ...) ve yalnızca WBGT atfı,
-    # ekip gruplaması ve küme testi için kullanılır. Çeper TEK parçadır.
+    trade: str = ""                           # trade: steel fixer, scaffolder, pipe fitter ...
+    crew: str = ""                            # crew/gang name — the shift supervisor knows this unit
+    # `micro_zone` is an EMPLOYER LABEL, not derived from location: the measured 1000 m location uncertainty
+    # is on the order of the 500 m perimeter, so the sub-zone CANNOT be verified from the network. `zone_label`
+    # is that label's human-readable name (Marina District, Energy City ...) and is used only for WBGT
+    # attribution, crew grouping and the cluster test. The perimeter is ONE piece.
     zone_label: str = ""
 
-    # --- canlı sinyaller
-    inside: bool = True                       # geofence olaylarından (ücretsiz)
-    entered_at: datetime | None = None        # sahaya giriş anı — maruziyet penceresinin başlangıcı
+    # --- live signals
+    inside: bool = True                       # from geofence events (free)
+    entered_at: datetime | None = None        # moment of entering the site — start of the exposure window
     exited_at: datetime | None = None
-    last_geofence_at: datetime | None = None  # en son UYGULANAN geofence olayinin zamani (sira korumasi)
+    last_geofence_at: datetime | None = None  # time of the most recently APPLIED geofence event (ordering guard)
     last_signal_at: datetime | None = None
     last_verified_at: datetime | None = None
     verified_inside: bool | None = None
@@ -85,16 +86,16 @@ class WorkerRuntime:
     last_reachability_at: datetime | None = None
     reachable: bool | None = None
     location_retrieved: bool = False
-    last_location: dict | None = None         # yalnızca eskalasyon sonrası, tek sefer; defterde kaba özet
+    last_location: dict | None = None         # only after escalation, one time; a coarse summary in the ledger
     device_history: dict = field(default_factory=dict)   # {"recurring_unreachable_window": bool, "continuous_reachable_hours": float}
-    # Vardiya listesinde olup şebekede hiç görülmemiş işçi: maruziyeti bu olasılıkla ölçülür.
+    # A worker on the shift roster but never seen on the network: exposure is weighted by this probability.
     presence_prior: float = 1.0
-    # Yabancı hat + dolaşım: sorgular abonenin EV operatöründen karşılanır. Göçmen işçinin
-    # memleket operatörü Open Gateway sunmuyorsa bu işçiye teknik olarak hiç erişilemez.
-    # "Yok" değil, KALICI OLARAK BİLİNMİYOR — ve kapsama metriğinde ayrı sayılır.
+    # Foreign line + roaming: queries are served by the subscriber's HOME operator. If a migrant worker's
+    # home-country operator does not offer Open Gateway, this worker is technically unreachable altogether.
+    # Not "absent" but PERMANENTLY UNKNOWN — and counted separately in the coverage metric.
     reachable_via_operator: bool = True
 
-    # --- karar durumu
+    # --- decision state
     state: str = "passive_watch"
     cleared: bool = False
     escalated: bool = False
@@ -113,7 +114,7 @@ class WorkerRuntime:
         return hash_phone(self.phone)
 
     def to_signals(self) -> dict:
-        """Kural fonksiyonlarının beklediği sözlük görünümü (saf veri, ham numara yok)."""
+        """The dict view the rule functions expect (plain data, no raw number)."""
         return {
             "worker_id": self.worker_id, "masked": self.masked, "name": self.name, "micro_zone": self.micro_zone,
             "zone_label": self.zone_label, "nationality": self.nationality, "trade": self.trade, "crew": self.crew,
@@ -139,10 +140,10 @@ class WorkerRuntime:
         return d
 
 
-# --------------------------------------------------------------------------- saha
+# --------------------------------------------------------------------------- site
 @dataclass
 class SiteRuntime:
-    """Bir şantiyenin canlı durumu + kanıt defteri (uyum kaydı ürünün kendisi)."""
+    """A construction site's live state + evidence ledger (the compliance record is the product itself)."""
 
     site_id: str
     name: str
@@ -153,7 +154,7 @@ class SiteRuntime:
     workers: dict[str, WorkerRuntime] = field(default_factory=dict)
     state: str = "passive_watch"
     wbgt_c: float | None = None
-    wbgt_at: datetime | None = None       # okumanın ALINDIĞI an — bayatlık karara girer
+    wbgt_at: datetime | None = None       # the moment the reading was TAKEN — staleness enters the decision
     breached: bool = False
     severity: float = 0.0
     level: str = "none"
@@ -162,29 +163,29 @@ class SiteRuntime:
     last_reconcile_at: datetime | None = None
     sweeps: int = 0
     queries_total: int = 0
-    ledger_pruned: int = 0              # tavan asilinca dusurulen satir sayisi (sessizce degil)
-    verifications_total: int = 0        # kaç Location Verification yapıldı
-    partial_verifications: int = 0      # kaçı PARTIAL döndü — konumlandırma belirsizliğinin ölçüsü
+    ledger_pruned: int = 0              # number of rows dropped when the cap was hit (not silently)
+    verifications_total: int = 0        # how many Location Verifications were made
+    partial_verifications: int = 0      # how many returned PARTIAL — a measure of positioning uncertainty
     ledger: list[dict] = field(default_factory=list)
     congestion_cache: dict[str, tuple[datetime, str, str]] = field(default_factory=dict)  # zone → (t, level, source)
     qod_sessions: dict[str, dict] = field(default_factory=dict)
-    # CAMARA abonelik başına tek olay tipi ister → işçi başına İKİ abonelik.
-    subscriptions: dict[str, str] = field(default_factory=dict)        # worker_id → area-entered abonelik id
-    subscriptions_left: dict[str, str] = field(default_factory=dict)   # worker_id → area-left abonelik id
-    # ESZAMANLILIK: yazanlar (tarama, isci ekleme, olay, WBGT) bu kilidi tutar — saha basina, ki
-    # bir sahadaki yavas operator cagrisi digerlerini durdurmasin. Okuyanlar kilit TUTMAZ: taramanin
-    # disinda buyuyen sozlukler (workers, subscriptions*, qod_sessions) yerinde degil, kopyalanip
-    # yeniden atanarak degistirilir; okuyucunun elindeki sozluk hic degismez.
+    # CAMARA wants a single event type per subscription → TWO subscriptions per worker.
+    subscriptions: dict[str, str] = field(default_factory=dict)        # worker_id → area-entered subscription id
+    subscriptions_left: dict[str, str] = field(default_factory=dict)   # worker_id → area-left subscription id
+    # CONCURRENCY: writers (sweep, adding a worker, event, WBGT) hold this lock — per site, so that
+    # a slow operator call on one site does not stall the others. Readers do NOT hold the lock: the dicts
+    # that grow outside the sweep (workers, subscriptions*, qod_sessions) are changed not in place but by
+    # copying and reassigning; the dict a reader holds never changes.
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
-    # Bu sahaya ozel planlayici (demo/test). None → surecin planlayicisi. Ortam degiskeni ya da sinif
-    # metodu yamamak TUM surecteki taramalari etkiliyordu.
+    # A planner specific to this site (demo/test). None → the process-wide planner. Patching an environment
+    # variable or a class method used to affect sweeps across the WHOLE process.
     planner: Any = field(default=None, repr=False, compare=False)
 
-    # ---- kanıt defteri
+    # ---- evidence ledger
     def log(self, now: datetime, event: str, detail: str, *, worker: WorkerRuntime | None = None,
             source: str = "rules", explain: list | None = None, extra: dict | None = None) -> dict:
         entry = {
-            # Budanan satirlar da sayilir: numara bir satiri omru boyunca gosterir, geri gitmez.
+            # Pruned rows are counted too: a number identifies a row for its whole life, it never goes back.
             "seq": self.ledger_pruned + len(self.ledger) + 1, "t": _iso(now), "site_id": self.site_id, "event": event, "detail": detail,
             "worker_id": worker.worker_id if worker else None, "worker_masked": worker.masked if worker else None,
             "source": source, "explain": [e.to_dict() if hasattr(e, "to_dict") else e for e in (explain or [])],
@@ -195,12 +196,12 @@ class SiteRuntime:
         return entry
 
     def prune_ledger(self, cfg: Config) -> int:
-        """Defteri tavanda tut; DUSURULEN SATIR SAYISINI SAKLA.
+        """Keep the ledger at its cap; STORE THE NUMBER OF DROPPED ROWS.
 
-        Bir gizlilik denetimi "konum gecmisi tutulmaz" iddiamizin YANLIS oldugunu olctu: defter
-        budanmiyordu ve tek isci icin 11 zaman damgali varlik kaydi olusuyordu. Dogru cevap
-        defteri gizlemek degil — o defter urunun kendisi, muteahhidin uyum kaniti. Dogru cevap
-        onu SINIRLI, SAYILABILIR ve beyan edilmis tutmak.
+        A privacy audit measured that our claim "no location history is kept" was WRONG: the ledger
+        was never pruned and a single worker accumulated 11 timestamped presence records. The right
+        answer is not to hide the ledger — that ledger is the product itself, the contractor's proof of
+        compliance. The right answer is to keep it BOUNDED, COUNTABLE and declared.
         """
         cap = cfg.budget.ledger_max_entries
         excess = len(self.ledger) - cap
@@ -210,9 +211,9 @@ class SiteRuntime:
         return self.ledger_pruned
 
     def presence_record(self) -> dict:
-        """Defterin GERCEKTEN ne tuttugunu sayar — iddia degil, olcum.
+        """Counts what the ledger ACTUALLY holds — a measurement, not a claim.
 
-        `location_history_size: 0` diye sabit bir sifir donduruyorduk; bu yanlisti.
+        We used to return a hard-coded zero as `location_history_size: 0`; that was wrong.
         """
         worker_entries = sum(1 for e in self.ledger if e.get("worker_id"))
         coords = sum(1 for e in self.ledger if e.get("coarse"))
@@ -225,14 +226,14 @@ class SiteRuntime:
                          "to 3 decimals. Production needs durable storage with a legal retention period.")}
 
     def coverage(self) -> dict:
-        """§9A dürüst kapsama metriği: rozetle giren kaç işçi şebekede görünüyor?"""
+        """§9A honest coverage metric: how many workers who badged in are visible on the network?"""
         badged = [w for w in self.workers.values() if w.badge_in]
-        # "Görünür" = ŞEBEKEDE gerçekten bir sinyal görülmüş olması. `inside` bayrağına bakmayız:
-        # vardiya listesi mutabakatı onu kanıt olmadan da açabiliyor (bkz. _reconcile_roster) ve
-        # kapsama metriği bu projenin dürüstlük ölçüsüdür — mutabakatla şişirilemez.
+        # "Visible" = a signal has actually been seen ON THE NETWORK. We do not look at the `inside` flag:
+        # shift-roster reconciliation can set it without evidence (see _reconcile_roster), and the
+        # coverage metric is this project's measure of honesty — it cannot be inflated by reconciliation.
         visible = [w for w in badged if w.last_signal_at is not None]
-        # Yabancı hatta olan işçi kayıp değil, KALICI OLARAK ERİŞİLEMEZ. Ayrı sayılır ki
-        # kapsama oranı "bulamadık" ile "hiç bakamayız"ı aynı kefeye koymasın.
+        # A worker on a foreign line is not missing but PERMANENTLY UNREACHABLE. Counted separately so
+        # that the coverage rate does not lump "we couldn't find them" together with "we can never look".
         unreachable = [w for w in badged if not w.reachable_via_operator]
         pct = round(100 * len(visible) / len(badged)) if badged else 100
         return {"badged_in": len(badged), "network_visible": len(visible), "coverage_pct": pct,
@@ -246,8 +247,8 @@ class SiteRuntime:
             "state": self.state, "wbgt_c": self.wbgt_c, "breached": self.breached, "severity": self.severity,
             "level": self.level, "breach_started_at": _iso(self.breach_started_at), "last_sweep_at": _iso(self.last_sweep_at),
             "sweeps": self.sweeps, "queries_total": self.queries_total,
-            # PARTIAL oranı: konumlandırma belirsizliğinin saha yarıçapına göre ne kadar büyük
-            # olduğunun doğrudan ölçüsü. Demoda gösterilecek gerçek veri.
+            # PARTIAL rate: a direct measure of how large the positioning uncertainty is relative
+            # to the site radius. Real data to show in the demo.
             "verifications_total": self.verifications_total, "partial_verifications": self.partial_verifications,
             "partial_rate_pct": round(100 * self.partial_verifications / self.verifications_total)
             if self.verifications_total else 0,
@@ -259,21 +260,21 @@ class SiteRuntime:
         }
 
 
-# --------------------------------------------------------------------------- ücretsiz sinyaller
+# --------------------------------------------------------------------------- free signals
 def apply_geofence_event(site: SiteRuntime, worker_id: str, kind: str, now: datetime) -> dict:
-    """Geofence olayı (area-entered / area-left) — ŞEBEKE İTER, sorgu bütçesi harcanmaz (Move 1)."""
+    """Geofence event (area-entered / area-left) — THE NETWORK PUSHES, no query budget is spent (Move 1)."""
     w = site.workers.get(worker_id)
     if w is None:
         raise KeyError(worker_id)
     now = _dt(now)
-    # FAIL-OPEN DEGIL: tanınmayan bir `kind` (ornegin "area_left" yazim hatasi) eskiden CIKIS
-    # sayiliyor, isciyi kuyruktan dusuruyor ve `exited_at` ile mutabakati kalici olarak bloke
-    # ediyordu. Bir yazim hatasi bir isciyi guvenlik gozunden silmemeli.
+    # NOT FAIL-OPEN: an unrecognised `kind` (e.g. the typo "area_left") used to count as an EXIT,
+    # drop the worker from the queue and, via `exited_at`, permanently block reconciliation.
+    # A typo must not erase a worker from the safety view.
     if kind not in ("enter", "area-entered", "exit", "left", "area-left"):
         raise ValueError(f"unknown geofence event kind: {kind!r}")
-    # SIRA KORUMASI: webhook teslimi sira garantisi vermez. 10:00 girisinden SONRA teslim edilen
-    # 09:00 cikisi eskiden isciyi disari atiyor ve kuyruktan dusuruyordu. Eski olay uygulanmaz,
-    # ama defterden de saklanmaz.
+    # ORDERING GUARD: webhook delivery gives no ordering guarantee. A 09:00 exit delivered AFTER a
+    # 10:00 entry used to throw the worker out and drop them from the queue. The older event is not
+    # applied, but it is not hidden from the ledger either.
     if w.last_geofence_at is not None and now < w.last_geofence_at:
         return site.log(now, "geofence_out_of_order",
                         f"A {kind} event from {_iso(now)} arrived after a newer one ({_iso(w.last_geofence_at)}) "
@@ -283,8 +284,8 @@ def apply_geofence_event(site: SiteRuntime, worker_id: str, kind: str, now: date
     if kind in ("enter", "area-entered"):
         w.inside, w.exited_at, w.cleared = True, None, False
         w.verified_inside, w.last_verified_at = True, now
-        # Maruziyet bu andan sayılır: ihlal 12:00'de başlasa da 12:30'da giren işçi 13:00'te
-        # 30 dakikadır maruz kalmıştır, 60 değil. `rules.exposure_window()` bu alanı okur.
+        # Exposure counts from this moment: even if the breach began at 12:00, a worker who entered
+        # at 12:30 has been exposed for 30 minutes at 13:00, not 60. `rules.exposure_window()` reads this field.
         w.entered_at = now
         detail = "entered the site (free geofence event)"
     else:
@@ -292,14 +293,14 @@ def apply_geofence_event(site: SiteRuntime, worker_id: str, kind: str, now: date
         w.cleared, w.escalated, w.verdict, w.confidence = True, False, None, None
         w.verified_inside, w.last_verified_at = False, now
         w.state = "passive_watch"
-        w.entered_at = None          # çıkan işçinin maruziyet penceresi kapanır
+        w.entered_at = None          # the exposure window of a worker who left is closed
         detail = "left the site — drops out of the queue, its budget returns to the pool"
     w.last_signal_at = now
     return site.log(now, f"geofence_{kind}", detail, worker=w, source="geofencing-subscriptions")
 
 
 def sweep_due(site: SiteRuntime, now: datetime, cfg: Config | None = None) -> bool:
-    """Tarama sıklığı şiddete bağlı: marjinal ihlal 10 dk, şiddetli 2 dk (§8)."""
+    """Sweep frequency depends on severity: marginal breach 10 min, severe 2 min (§8)."""
     cfg = cfg or site.cfg
     if site.last_sweep_at is None:
         return True
@@ -307,21 +308,21 @@ def sweep_due(site: SiteRuntime, now: datetime, cfg: Config | None = None) -> bo
     return (_dt(now) - site.last_sweep_at) >= timedelta(minutes=interval)
 
 
-# --------------------------------------------------------------------------- Nokia çağrıları (yalnızca facade üzerinden)
+# --------------------------------------------------------------------------- Nokia calls (only through the facade)
 def _call(nac, name: str, *args, **kw):
-    """facade.call → (data, source, latency_ms). Facade yoksa (None, 'none', 0)."""
+    """facade.call → (data, source, latency_ms). Without a facade, (None, 'none', 0)."""
     if nac is None:
         return None, "none", 0
     r = nac.call(name, *args, **kw)
     return r.data, r.source, r.latency_ms
 
 
-# --------------------------------------------------------------------------- LLM planlayıcı (kuralların ALTINDA)
+# --------------------------------------------------------------------------- LLM planner (BELOW the rules)
 _PLANNER = None
 
 
 def _planner():
-    """Süreç ömrü boyunca tek planlayıcı. Anahtar yoksa `RulesPlanner` döner."""
+    """A single planner for the lifetime of the process. Without a key, `RulesPlanner` is returned."""
     global _PLANNER
     if _PLANNER is None:
         from .llm_adapter import get_planner
@@ -330,17 +331,17 @@ def _planner():
 
 
 def reset_planner() -> None:
-    """Test/demo için planlayıcı seçimini yeniden yaptır (ortam değişkeni değişince)."""
+    """Force the planner choice to be made again, for test/demo (when an environment variable changes)."""
     global _PLANNER
     _PLANNER = None
 
 
 def _rerank_with_model(site: SiteRuntime, plan: list, now: datetime, st: dict, cfg: Config) -> tuple[list, dict]:
-    """Modele planı YENİDEN SIRALAMAYI önerttir; güvenlik kapısından geçir; kararı deftere yaz.
+    """Have the model propose a RE-ORDERING of the plan; pass it through the safety gate; log the decision.
 
-    Model plan ÜRETMEZ. Kuralların ürettiği listeyi görür ve sıra önerir. `guard_plan` öneriyi
-    yapısal olarak denetler: yeni işçi ekleyemez, API seçemez, bütçeyi aşamaz, tekrar üretemez.
-    Reddedilirse kuralların sırası uygulanır ve reddin gerekçesi defterde görünür.
+    The model does NOT PRODUCE the plan. It sees the list the rules produced and proposes an order. `guard_plan`
+    checks the proposal structurally: it cannot add a worker, pick an API, exceed the budget or produce duplicates.
+    If rejected, the rules' order is applied and the reason for rejection is visible in the ledger.
     """
     p = site.planner or _planner()
     name = getattr(p, "name", "deterministic-rules")
@@ -377,17 +378,17 @@ def _rerank_with_model(site: SiteRuntime, plan: list, now: datetime, st: dict, c
 
 
 def _reconcile_roster(site: SiteRuntime, now: datetime, cfg: Config, force: bool) -> list[str]:
-    """Periyodik mutabakat — olay akışı TEK DOĞRULUK KAYNAĞI DEĞİLDİR.
+    """Periodic reconciliation — the event stream is NOT THE SINGLE SOURCE OF TRUTH.
 
-    Kaçan bir "giriş" olayı işçiyi sistemde görünmez yapar: kimse onu aramaz, çünkü sistem orada
-    olduğunu hiç bilmez. Çözüm teslim garantisi aramak değil (operatör geri bildirimi, 9 Eylül 2026);
-    çözüm işveren vardiya listesiyle mutabakat: rozetle giren ama şebekede hiç görünmemiş işçileri
-    kuyruğa geri al.
+    A missed "entry" event makes a worker invisible to the system: nobody looks for them, because the
+    system never knew they were there. The fix is not to seek a delivery guarantee (operator feedback,
+    9 September 2026); the fix is reconciliation with the employer's shift roster: pull workers who
+    badged in but were never seen on the network back into the queue.
 
-    Böylece kaçan olay "görünmez işçi"den "durumu BİLİNMEYEN işçi"ye döner — ve sistem ikincisini
-    zaten doğru ele alıyor, çünkü bilinmeyeni güvende saymıyor.
+    That way a missed event turns an "invisible worker" into a "worker whose state is UNKNOWN" — and the
+    system already handles the latter correctly, because it does not count the unknown as safe.
 
-    Her ihlalin BAŞINDA (force) ve sonra `reconcile_minutes` aralıklarla çalışır.
+    Runs at the START of every breach (force) and then at `reconcile_minutes` intervals.
     """
     if not force and site.last_reconcile_at is not None:
         if (now - site.last_reconcile_at) < timedelta(minutes=cfg.budget.reconcile_minutes):
@@ -398,15 +399,15 @@ def _reconcile_roster(site: SiteRuntime, now: datetime, cfg: Config, force: bool
         if not w.badge_in or w.escalated:
             continue
         if not w.reachable_via_operator:
-            continue          # ev operatörü erişilemez — sorgulamak boşa bütçe, kapsamada ayrı sayılır
+            continue          # home operator unreachable — querying wastes budget; counted separately in coverage
         if w.exited_at is not None:
-            continue                      # gerçek bir çıkış olayı var — mutabakat onu geri çağırmaz
+            continue                      # there is a real exit event — reconciliation does not call it back
         if w.last_signal_at is not None:
-            continue                      # şebekede görülmüş; olay akışı bu işçi için çalışıyor
+            continue                      # seen on the network; the event stream works for this worker
         if w.inside and not w.cleared:
-            continue                      # zaten kuyrukta
-        # AYRI REZERV AÇMIYORUZ (keyfi bölme, her zaman yanlış oranda kalır). Aynı kuyruğa
-        # girer; dengeyi mevcudiyet önseli kurar — listede olmak sahada olmak değildir.
+            continue                      # already in the queue
+        # WE DO NOT OPEN A SEPARATE RESERVE (an arbitrary split always ends up in the wrong ratio). It joins
+        # the same queue; the presence prior sets the balance — being on the roster is not being on site.
         w.inside, w.cleared, w.state = True, False, "confirming"
         w.presence_prior = cfg.budget.presence_prior_roster_only
         pulled.append(w.worker_id)
@@ -423,17 +424,17 @@ def _reconcile_roster(site: SiteRuntime, now: datetime, cfg: Config, force: bool
 
 
 def _liveness_probe(site: SiteRuntime, w: WorkerRuntime, now: datetime, nac, cfg: Config, report: dict) -> bool | None:
-    """Sıkı tazelikli konum sorgusu = canlılık kanıtı. Döner: True (canlı) · False (cevap yok) · None (belirsiz).
+    """Strict-freshness location query = liveness proof. Returns: True (alive) · False (no answer) · None (inconclusive).
 
-    Neden bu prob: `device-reachability-status` şebekenin TUTTUĞU durumu okur. Cihaz gerçekten
-    kapandığında durumun "unreachable"a dönmesi periyodik kayıt zamanlayıcısına bağlıdır (yaygın
-    varsayılan 54 dakika + marj), yani bayılma anında bize hiçbir şey söylemeyebilir. Sıkı tazelikli
-    bir konum sorgusu ise şebekeyi taze bir fix üretmeye zorlar; bunun için cihazı sayfalaması
-    gerekir. Cevap gelirse cihaz O AN yanıt vermiştir.
+    Why this probe: `device-reachability-status` reads the state the network HOLDS. When a device really
+    goes off, the state flipping to "unreachable" depends on the periodic registration timer (a common
+    default is 54 minutes + margin), so at the moment of a collapse it may tell us nothing. A strict-freshness
+    location query, on the other hand, forces the network to produce a fresh fix; to do that it has to
+    page the device. If an answer comes back, the device responded AT THAT MOMENT.
 
-    KRİTİK DOĞRULAMA: dönen `lastLocationTime` gerçekten taze mi? Kırk dakikalık bir damga dönüyorsa
-    şebeke taze fix yapmamış demektir ve bu probun tüm varsayımı çöker. O durumda "belirsiz" döneriz
-    ve deftere ne olduğunu yazarız — sessizce canlı saymayız.
+    CRITICAL CHECK: is the returned `lastLocationTime` really fresh? If a forty-minute-old stamp comes back,
+    the network did not make a fresh fix and the whole premise of this probe collapses. In that case we
+    return "inconclusive" and write what happened into the ledger — we do not silently count it as alive.
     """
     max_age = cfg.budget.strict_max_age_s
     data, source, ms = _call(nac, "location_verify", w.phone, site.lat, site.lng, site.radius_m, max_age)
@@ -442,10 +443,10 @@ def _liveness_probe(site: SiteRuntime, w: WorkerRuntime, now: datetime, nac, cfg
     res = (data or {}).get("verificationResult")
     ts = _dt((data or {}).get("lastLocationTime"))
     raw_age_s = (now - ts).total_seconds() if ts else None
-    # GELECEK ZAMANLI DAMGA KANIT DEĞİLDİR. Önce negatif yaşı sıfıra kırpıyordum; bir denetim
-    # bunun tazelik eşiğini TAMAMEN etkisiz kıldığını ölçtü (8 saat / 240 tarama: prob 200 kez
-    # "canlı" dedi, sıfır bayılma hükmü) ve 0.95 güvenli bir `probable_collapse` hükmünü
-    # siliyordu. Saat tutarsızlığı bir canlılık kanıtı değildir — reddedilir.
+    # A FUTURE-DATED STAMP IS NOT EVIDENCE. I used to clamp a negative age to zero; an audit measured
+    # that this made the freshness threshold COMPLETELY ineffective (8 hours / 240 sweeps: the probe said
+    # "alive" 200 times, zero collapse verdicts) and it was erasing a `probable_collapse` verdict with
+    # 0.95 confidence. A clock inconsistency is not proof of liveness — it is rejected.
     CLOCK_SKEW_S = 5.0
     if raw_age_s is None:
         age_s, future = None, False
@@ -453,7 +454,7 @@ def _liveness_probe(site: SiteRuntime, w: WorkerRuntime, now: datetime, nac, cfg
         age_s, future = None, True
     else:
         age_s, future = max(0.0, raw_age_s), False
-    fresh = age_s is not None and age_s <= max_age * 2      # damga gerçekten taze mi
+    fresh = age_s is not None and age_s <= max_age * 2      # is the stamp really fresh
 
     report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "location-verification",
                             "pool": "liveness", "result": res, "source": source, "latency_ms": ms,
@@ -463,8 +464,8 @@ def _liveness_probe(site: SiteRuntime, w: WorkerRuntime, now: datetime, nac, cfg
                             "reason": "liveness probe — a fresh fix requires the network to page the device"})
 
     if not _trusted(source) or res is None or res == "UNKNOWN":
-        # UNKNOWN ana yolda da "güvenilir sinyal değil" sayılıyor (bkz. location_verify dalı).
-        # Aynı cevabın burada canlılık kanıtı olması doğrudan çelişkiydi.
+        # UNKNOWN is counted as "not a trustworthy signal" on the main path too (see the location_verify branch).
+        # The same answer being proof of liveness here was a direct contradiction.
         site.log(now, "liveness_unknown",
                  f"Liveness probe: no usable answer ({res}) — the device is NOT counted as alive",
                  worker=w, source=source)
@@ -476,7 +477,8 @@ def _liveness_probe(site: SiteRuntime, w: WorkerRuntime, now: datetime, nac, cfg
                  worker=w, source=source, extra={"raw_age_s": round(raw_age_s, 1)})
         return None
     if age_s is None:
-        # Cevap geldi ama konum zaman damgası yok → şebeke taze bir fix üretmemiş. Canlılık kanıtı DEĞİL.
+        # An answer came but with no position timestamp → the network did not produce a fresh fix.
+        # NOT proof of liveness.
         site.log(now, "liveness_inconclusive",
                  "The network answered a fresh-fix request without a position timestamp — no fix was produced, "
                  "so this is NOT liveness evidence. The device is not counted as alive",
@@ -501,18 +503,18 @@ def _worker_id_of(act) -> str:
 
 
 def _trusted(source: str | None) -> bool:
-    """Cevap gerçek operatörden mi geldi?
+    """Did the answer come from the real operator?
 
-    `error(...)` (çağrı düştü) ve `fixture-fallback(...)` (yedeğe düşüldü) kaynaklı cevaplar
-    GÜVENLİK HÜKMÜ üretemez: "API çöktü" ile "işçi bölge dışında" aynı şey değildir.
-    Bu, ürünün "hata asla 'güvende' hükmü üretmez" iddiasının kod karşılığıdır.
+    Answers sourced from `error(...)` (the call failed) and `fixture-fallback(...)` (fell back to the backup)
+    cannot produce a SAFETY VERDICT: "the API crashed" and "the worker is outside the zone" are not the same thing.
+    This is the code counterpart of the product's claim that "an error never produces a 'safe' verdict".
     """
     s = source or ""
     return not (s.startswith("error(") or s.startswith("fixture-fallback("))
 
 
 def _congestion(site: SiteRuntime, w: WorkerRuntime, now: datetime, nac, cfg: Config) -> tuple[str | None, str]:
-    """Mikro-bölge başına tıkanıklık; `congestion_cache_minutes` boyunca tekrar sorulmaz (bütçe koruması)."""
+    """Congestion per micro-zone; not asked again for `congestion_cache_minutes` (budget protection)."""
     cached = site.congestion_cache.get(w.micro_zone)
     if cached and (now - cached[0]) <= timedelta(minutes=cfg.budget.congestion_cache_minutes):
         return cached[1], cached[2] + "(cache)"
@@ -529,28 +531,28 @@ def _congestion(site: SiteRuntime, w: WorkerRuntime, now: datetime, nac, cfg: Co
     return level, source
 
 
-# --------------------------------------------------------------------------- tarama
+# --------------------------------------------------------------------------- sweep
 def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, wbgt_c: float | None = None) -> dict:
-    """Bir tarama: site durumu → skorlama → plan → çağrılar → sınıflandırma → eskalasyon → kanıt defteri."""
+    """One sweep: site state → scoring → plan → calls → classification → escalation → evidence ledger."""
     cfg = cfg or site.cfg
     now = _dt(now)
-    # Yerel taklidin saatini simule zamana hizala. Fixture gercek duvar saatini yazarsa
-    # urettigi zaman damgalari simule senaryoda "gelecekten" gelir; tazelik kontrolu anlamsizlasir.
-    # Canli modda `fx` yalnizca yedek olarak durur, oraya dokunmak zararsizdir.
+    # Align the local mock's clock with simulated time. If the fixture writes the real wall clock, the
+    # timestamps it produces come "from the future" in a simulated scenario; the freshness check becomes meaningless.
+    # In live mode `fx` only sits there as a fallback, so touching it is harmless.
     _fx = getattr(getattr(nac, "nac", None), "fx", None) or getattr(nac, "fx", None)
     if _fx is not None and hasattr(_fx, "set_clock"):
         _fx.set_clock(now)
     if wbgt_c is not None:
         site.wbgt_c, site.wbgt_at = wbgt_c, now
 
-    # ---- 1) site durumu (WBGT eşiği VEYA yaz yasağı saati)
+    # ---- 1) site state (WBGT threshold OR summer-ban hours)
     st = R.site_state(site.wbgt_c, now, cfg.jurisdiction, cfg, site.wbgt_at)
     site.breached, site.severity, site.level = st["breached"], st["severity"], st["level"]
     report: dict[str, Any] = {
         "site_id": site.site_id, "now": _iso(now), "wbgt_c": site.wbgt_c, "breached": st["breached"],
         "wbgt_known": st.get("wbgt_known"), "wbgt_stale": st.get("wbgt_stale"),
         "wbgt_age_minutes": st.get("wbgt_age_minutes"), "wbgt_at": _iso(site.wbgt_at),
-        # İhlal WBGT eşiğinden mi yoksa yasak saatinden mi doğdu — ikisi farklı hukuki dayanak.
+        # Did the breach arise from the WBGT threshold or from the ban hours — two different legal bases.
         "wbgt_breach": st.get("wbgt_breach"), "ban_breach": st.get("ban_breach"),
         "severity": st["severity"], "level": st["level"], "reason": st["reason"],
         "site_explain": [e.to_dict() for e in st["explain"]],
@@ -561,16 +563,16 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
         "jurisdiction": cfg.jurisdiction.to_dict(),
     }
 
-    # ---- Move 1: ihlal yoksa sorgu yetkisi yok
+    # ---- Move 1: no breach, no query authority
     if not st["breached"]:
-        quiet_from = len(site.ledger)          # EN BAŞTA: bu yolda doğan satırlar da rapora çıksın
+        quiet_from = len(site.ledger)          # AT THE VERY START: rows created on this path also reach the report
         if not st.get("wbgt_known"):
-            # ÖLÇÜM YOK ya da BAYAT — ve bu "ihlal bitti" DEMEK DEĞİLDİR.
-            # Bir denetim ölçtü ki eskiden bu yol tüm işçi durumunu siliyordu: açık bir
-            # `probable_collapse` vakası, sağlıkçı çağrılmışken, yalnızca meteoroloji beslemesi
-            # sustuğu için sessizce kapanıyordu ve defter "Breach over" yazıyordu.
-            # Beslemenin ölmesi ihlalin bitmesi değildir: AÇIK VAKALAR KORUNUR, yalnızca yeni
-            # sorgu yetkisi doğmaz (amaç sınırlaması korunur).
+            # NO READING or a STALE one — and this does NOT MEAN "the breach is over".
+            # An audit measured that this path used to wipe all worker state: an open
+            # `probable_collapse` case, with the medic already called, was silently closed just because
+            # the meteorology feed went quiet, and the ledger wrote "Breach over".
+            # A dead feed is not the end of a breach: OPEN CASES ARE PRESERVED, only no new
+            # query authority arises (purpose limitation is preserved).
             site.log(now, "wbgt_feed_unusable", st["reason"], source="meteorology-feed",
                      explain=st["explain"],
                      extra={"wbgt_c": site.wbgt_c, "wbgt_age_minutes": st.get("wbgt_age_minutes"),
@@ -603,11 +605,11 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
     if site.state == "passive_watch":
         site.state = "alert"
 
-    # ---- Move 1b: vardiya listesiyle mutabakat. Her ihlalin başında, sonra periyodik.
+    # ---- Move 1b: reconciliation with the shift roster. At the start of every breach, then periodically.
     reconciled = _reconcile_roster(site, now, cfg, force=breach_is_new)
     report["reconciled"] = reconciled
 
-    # ---- 2) Move 2: skorla ve sırala
+    # ---- 2) Move 2: score and rank
     candidates: list[dict] = []
     presumed_safe: list[dict] = []
     for w in site.workers.values():
@@ -627,7 +629,7 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                                breach_started_at=site.breach_started_at)
     unlimited = R.plan_verification(candidates, 10_000, cfg, now)
 
-    # ---- Move 2b: model kuralların ALTINDA — planı yalnızca yeniden sıralayabilir (llm_adapter.py)
+    # ---- Move 2b: the model sits BELOW the rules — it can only re-order the plan (llm_adapter.py)
     plan, report["planner"] = _rerank_with_model(site, plan, now, st, cfg)
 
     main_planned = [a for a in plan if a.pool == "main"]
@@ -644,55 +646,55 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                  f"Budget exhausted: {report['budget']['skipped_for_budget']} workers were not queried in this sweep "
                  f"(the list did not end, the budget did — §8 Move 2)", source="rules")
 
-    # ---- 3) Move 3: planı sırayla uygula (maliyet merdiveni)
+    # ---- 3) Move 3: execute the plan in order (cost ladder)
     unreachable_now: list[WorkerRuntime] = []
     for act in plan:
         w = site.workers.get(act.worker.get("worker_id"))
         if w is None:
             continue
         if act.api == "location_verify":
-            # TAZELİK basamağı: gevşek → önbellek cevabı kabul (ucuz); sıkı → taze fix zorlar (pahalı).
-            # Şebekede maliyeti belirleyen budur, "hüküm mü koordinat mı" değil.
+            # FRESHNESS rung: loose → accept a cached answer (cheap); strict → force a fresh fix (expensive).
+            # This is what sets the cost on the network, not "verdict or coordinate".
             strict = act.freshness == "strict"
             max_age = cfg.budget.strict_max_age_s if strict else cfg.budget.loose_max_age_s
             data, source, ms = _call(nac, "location_verify", w.phone, site.lat, site.lng, site.radius_m, max_age)
             res = (data or {}).get("verificationResult")
             if res is not None and not _trusted(source):
-                # Yedeğe düşmüş cevap işçiyi kuyruktan DÜŞÜREMEZ — aksi hâlde çöken bir API
-                # sessizce "güvende" hükmü üretir. Doğrulanmadı sayılır, bayatlık artmaya devam eder.
+                # A fallback answer CANNOT drop the worker from the queue — otherwise a crashing API
+                # silently produces a "safe" verdict. Counted as not verified; staleness keeps rising.
                 site.log(now, "untrusted_signal", f"Answer from an untrusted source ({source}) — counted as not verified",
                          worker=w, source=source)
                 res = None
             w.queries_used, site.queries_total = w.queries_used + 1, site.queries_total + 1
             site.verifications_total += 1
             if res is not None:
-                # UNKNOWN ve PARTIAL birer cevaptır (bütçeyi korumak için hemen tekrar sormayız) ama
-                # GÜVENİLİR SİNYAL DEĞİLLERDİR: `last_signal_at` güncellenmez → bayatlık artmaya
-                # devam eder, işçi sıralamada yükselir.
+                # UNKNOWN and PARTIAL are answers (to protect the budget we do not ask again right away) but
+                # they ARE NOT TRUSTWORTHY SIGNALS: `last_signal_at` is not updated → staleness keeps
+                # rising, the worker moves up in the ranking.
                 w.last_verified_at = now
                 if res not in ("UNKNOWN", "PARTIAL"):
                     w.last_signal_at = now
             if res == "TRUE":
-                # `moving_out`a DOKUNULMAZ: yörünge bir saha sinyalidir (turnike çıkışı, vardiya amiri
-                # kaydı), Location Verification'dan türetilemez. Eskiden PARTIAL'dan türetiliyordu;
-                # operatör düzeltmesiyle o dayanak düştü — sahte sinyali korumak yerine kaldırdık.
+                # `moving_out` is NOT TOUCHED: trajectory is a site signal (turnstile exit, shift supervisor
+                # record) and cannot be derived from Location Verification. It used to be derived from PARTIAL;
+                # the operator's correction removed that basis — instead of keeping a fake signal, we removed it.
                 w.verified_inside, w.state = True, "confirming"
             elif res == "FALSE":
                 w.verified_inside, w.inside, w.cleared, w.state = False, False, True, "passive_watch"
                 site.log(now, "worker_cleared", "Location Verification: outside the zone — dropped out of the queue", worker=w, source=source)
             elif res == "PARTIAL":
-                # PARTIAL GEOMETRİK bir ifadedir: belirsizlik bölgesi alanla KESİŞİYOR ama içinde
-                # kalmıyor. Hareketle ilgisi YOKTUR. (Daha önce burada "çıkışa doğru hareket" diye
-                # yorumlanıyordu — yanlıştı; operatör tarafından düzeltildi.) Konumlandırma
-                # belirsizliği saha yarıçapıyla aynı mertebedeyse PARTIAL baskın cevap hâline gelir,
-                # o yüzden "yetersiz kanıt" sayılır: doğrulanmadı, ve BİLİNMEYEN GÜVENDE DEĞİLDİR.
+                # PARTIAL is a GEOMETRIC statement: the uncertainty region INTERSECTS the area but is not
+                # contained in it. It has NOTHING to do with movement. (It used to be interpreted here as
+                # "moving toward the exit" — that was wrong; corrected by the operator.) If the positioning
+                # uncertainty is on the same order as the site radius, PARTIAL becomes the dominant answer,
+                # so it counts as "insufficient evidence": not verified, and the UNKNOWN IS NOT SAFE.
                 site.partial_verifications += 1
                 w.verified_inside, w.state = None, "confirming"
                 site.log(now, "insufficient_evidence",
                          "PARTIAL — the uncertainty region intersects the zone without being contained in it. "
                          "Geometric, not a movement signal: counted as not verified, staleness keeps rising",
                          worker=w, source=source)
-            else:  # UNKNOWN / hata → doğrulanmadı say, bir sonraki taramada tekrar dene
+            else:  # UNKNOWN / error → count as not verified, try again on the next sweep
                 w.verified_inside, w.state = None, "confirming"
             report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "location-verification",
                                     "pool": act.pool, "result": res, "source": source, "latency_ms": ms,
@@ -729,16 +731,16 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
             area = (data or {}).get("area") or {}
             c = area.get("center") or {}
             w.queries_used, site.queries_total = w.queries_used + 1, site.queries_total + 1
-            # KAPININ IKI CATLAGI (gizlilik denetimi):
-            #  (a) cagri `center` dondurmezse bayrak set edilmiyordu → isci `escalated` kaldikca
-            #      HER TARAMADA yeniden koordinat isteniyordu. Artik deneme de bir kez sayilir.
-            #  (b) `_trusted()` bu dala uygulanmamisti → yedege dusmus uydurma bir koordinat
-            #      gercekmis gibi saklanip saglikciya gosterilebilirdi.
-            w.location_retrieved = True          # (a) deneme yapildi; tek seferlik kapi kapandi
+            # TWO CRACKS IN THE GATE (privacy audit):
+            #  (a) if the call did not return a `center`, the flag was not set → as long as the worker stayed
+            #      `escalated`, a coordinate was requested again ON EVERY SWEEP. Now an attempt also counts once.
+            #  (b) `_trusted()` had not been applied to this branch → a fabricated coordinate from a fallback
+            #      could have been stored as if real and shown to the medic.
+            w.location_retrieved = True          # (a) the attempt was made; the one-time gate is closed
             if c and _trusted(source):
-                # KAYNAKTA KABALASTIRMA: alan adi `last_location_masked` maskeli oldugunu ima
-                # ediyordu ama kod yuvarlamiyordu; API tam hassasiyetli koordinat yayiniyordu.
-                # Deftere yazilan 3 ondalik (~110 m) dogruydu — ayni olcu burada da uygulanir.
+                # COARSENING AT THE SOURCE: the field name `last_location_masked` implied it was masked,
+                # but the code did not round; the API was publishing full-precision coordinates.
+                # The 3 decimals (~110 m) written to the ledger were right — the same measure is applied here.
                 w.last_location = {"lat": round(float(c.get("latitude", 0)), 3),
                                    "lng": round(float(c.get("longitude", 0)), 3),
                                    "radius_m": area.get("radius"), "coarsened_decimals": 3,
@@ -750,15 +752,15 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                          worker=w, source=source)
             report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "location-retrieval",
                                     "pool": act.pool, "result": bool(c), "source": source, "latency_ms": ms, "reason": act.reason})
-            # Merkez gelmediyse (0, 0) YAZILMAZ: sahte bir koordinat hem saglikciyi yaniltir hem
-            # `coordinates_stored` sayacini sisirir.
+            # If no center came back, (0, 0) is NOT WRITTEN: a fake coordinate both misleads the medic and
+            # inflates the `coordinates_stored` counter.
             stored = w.last_location if (c and _trusted(source)) else None
             site.log(now, "location_retrieve",
                      "A ONE-TIME coordinate after escalation — for the medic" if stored else
                      "A ONE-TIME coordinate was requested after escalation — none usable came back; the gate is closed",
                      worker=w, source=source, explain=act.explain,
                      extra={"coarse": {"lat": stored["lat"], "lng": stored["lng"]} if stored else None})
-    # ---- 4) §9: bayılma mı, ağ mı, pil mi, çıkış mı?
+    # ---- 4) §9: collapse, network, battery or exit?
     for w in unreachable_now:
         zone_peers = [x for x in site.workers.values() if x.micro_zone == w.micro_zone and x.worker_id != w.worker_id]
         n_unreach = sum(1 for x in zone_peers if x.reachable is False)
@@ -768,18 +770,18 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
             report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "congestion-insights",
                                     "pool": "distress", "result": level, "source": csource, "latency_ms": 0,
                                     "reason": f"micro-zone {w.micro_zone}: a network event or a medical one?"})
-        # ---- CANLILIK PROBU (operatör tavsiyesi, 9 Eylül 2026)
-        # Device Reachability, şebekenin TUTTUĞU durumu okur; cihaz gerçekten kapandığında durumun
-        # "unreachable"a dönmesi periyodik kayıt zamanlayıcısına bağlıdır ve bir saati bulabilir.
-        # Sıkı tazelikli bir konum sorgusu ise şebekeyi TAZE bir fix üretmeye zorlar: bunun için
-        # cihazla bağlantı kurması, yani onu sayfalaması gerekir. Cevap gelirse cihaz O AN yanıt
-        # vermiştir — bayat durum okumasından çok daha taze bir canlılık kanıtı, üstelik mesajlaşmaya
-        # hiç girmeden, kendi altı API'mizin içinde kalarak.
+        # ---- LIVENESS PROBE (operator advice, 9 September 2026)
+        # Device Reachability reads the state the network HOLDS; when a device really goes off, the state
+        # flipping to "unreachable" depends on the periodic registration timer and can take up to an hour.
+        # A strict-freshness location query, on the other hand, forces the network to produce a FRESH fix:
+        # to do that it has to establish contact with the device, i.e. page it. If an answer comes back, the
+        # device responded AT THAT MOMENT — far fresher proof of liveness than a stale state reading, and
+        # without touching messaging at all, staying within our own six APIs.
         alive = _liveness_probe(site, w, now, nac, cfg, report)
         if alive is True and w.escalated:
-            # Vaka ZATEN açık ve sağlıkçı çağrılmış. Cihazın sonradan cevap vermesi vakayı
-            # KAPATMAZ: bir alarm, koşul düzeldi diye kendi kendine kapanmaz — insan onayı ister
-            # (endüstriyel alarm yönetiminin "return to normal, unacknowledged" ilkesi).
+            # The case is ALREADY open and the medic has been called. The device answering later does NOT
+            # CLOSE the case: an alarm does not close itself because the condition cleared — it needs human
+            # acknowledgement (the "return to normal, unacknowledged" principle of industrial alarm management).
             w.reachable, w.last_reachability_at, w.last_signal_at = True, now, now
             site.log(now, "liveness_after_escalation",
                      "The device answered a fresh-fix request AFTER the case was escalated. The case stays "
@@ -787,7 +789,7 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                      worker=w, source="rules")
             continue
         if alive is True:
-            # Cihaz sayfalamaya cevap verdi → bayılma değil. Erişilemezlik bayat okumaydı.
+            # The device answered paging → not a collapse. The unreachability was a stale reading.
             w.reachable, w.last_reachability_at, w.last_signal_at = True, now, now
             w.verdict, w.confidence, w.state = None, None, "confirming"
             continue
@@ -800,11 +802,11 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
             site.state = "distress"
         elif w.state != "passive_watch":
             w.state = "alert"
-        # garantili bant genişliği: sağlıkçı ↔ hekim video görüşmesi
+        # guaranteed bandwidth: medic ↔ physician video call
         if "request_qod" in actions:
             data, source, ms = _call(nac, "qod_create", w.phone, cfg.qod_app_server_ipv4, cfg.qod_profile, 900)
-            # QoD oturum istegi de bir sebeke cagrisi: sayilmazsa kart aritmetigi tutmuyor
-            # (juri 83 + 7 toplayip 89 goruyordu). Denetim A / Y1.
+            # A QoD session request is also a network call: if it is not counted, the card arithmetic
+            # does not add up (the jury added 83 + 7 and saw 89). Audit A / Y1.
             site.queries_total += 1
             sid = (data or {}).get("sessionId")
             if sid:
@@ -818,7 +820,8 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                                     "pool": "emergency", "result": sid, "source": source, "latency_ms": ms,
                                     "reason": "medic ↔ physician video assessment"})
         if "provision_slice" in actions:
-            # MOCK: Network Slicing NaC'de ayrı bir ürün; prototipte QoD + tıkanıklık kanıtıyla temsil edilir.
+            # MOCK: Network Slicing is a separate product in NaC; in the prototype it is represented
+            # by QoD + congestion evidence.
             site.log(now, "slice_requested", "Congestion is high → a dedicated slice requested for site-safety traffic (MOCK)",
                      worker=w, source="congestion-insights")
         entry = site.log(now, "distress_verdict", f"{res['verdict']} (confidence {res['confidence']:.2f}) → {', '.join(actions)}",
@@ -837,16 +840,16 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
             report["escalations"].append({"worker_id": w.worker_id, "masked": w.masked, "name": w.name,
                                           "confidence": res["confidence"], "actions": actions, "score": w.score})
 
-    # ---- 4b) UZAMIS MARUZIYET: sessizlik tek sinyal degildir.
-    # Yukaridaki siniflandirmanin tamami cihazin SUSMASINA dayaniyor. Ama telefonu cebinde,
-    # sarji dolu ve erisilebilir bir isci de bayilabilir — sebeke bunu hic gormez, hicbir
-    # sessizlik sinyali dogmaz. Kanun ise zaten isin DURMASINI emrediyor.
+    # ---- 4b) PROLONGED EXPOSURE: silence is not the only signal.
+    # All of the classification above relies on the device GOING SILENT. But a worker with the phone in
+    # their pocket, fully charged and reachable, can also collapse — the network never sees it, no
+    # silence signal ever arises. And the law already orders work to STOP.
     limit_min = cfg.distress.prolonged_exposure_minutes
     for w in site.workers.values():
         if w.cleared or w.escalated or not w.inside or w.verdict is not None:
             continue
         if w.verified_inside is False:
-            continue                   # bolge disinda oldugu DOGRULANMIS isci bu kuralin konusu degil
+            continue                   # a worker VERIFIED to be outside the zone is not the subject of this rule
         _, exposure_min, _, _ = R.exposure_window(w.to_signals(), site.breach_started_at, now)
         if exposure_min < limit_min:
             continue
@@ -874,13 +877,13 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                                       "trigger": "prolonged_exposure"})
 
     site.last_sweep_at, site.sweeps = now, site.sweeps + 1
-    # Rapor dilimi BUDAMADAN ONCE alinir: budama bastan siler ve `ledger_from` indeksini kaydirir.
+    # The report slice is taken BEFORE PRUNING: pruning deletes from the front and shifts the `ledger_from` index.
     report["ledger_added"] = site.ledger[ledger_from:]
     site.prune_ledger(cfg)
     report["presence_record"] = site.presence_record()
-    report["budget"]["spent"] = len(report["calls"])   # plan dışı acil çağrılar (congestion / QoD) dahil
-    # Bütçe PLANI keser; sessiz bir cihazın canlılık/tıkanıklık kontrolü ve QoD oturumu planın dışındadır
-    # ve bilerek kesilmez. Toplam gizlenmez, havuz bazında ayrıştırılır.
+    report["budget"]["spent"] = len(report["calls"])   # includes off-plan emergency calls (congestion / QoD)
+    # The budget cuts the PLAN; a silent device's liveness/congestion check and the QoD session are outside
+    # the plan and are deliberately not cut. The total is not hidden; it is broken down by pool.
     by_pool: dict[str, int] = {}
     for c in report["calls"]:
         by_pool[c["pool"]] = by_pool.get(c["pool"], 0) + 1
@@ -896,5 +899,5 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
 
 
 def new_worker(worker_id: str, phone: str, **kw) -> WorkerRuntime:
-    """Ham numarayı normalize ederek işçi kaydı üretir (tek yer)."""
+    """Creates a worker record, normalising the raw number (the single place this happens)."""
     return WorkerRuntime(worker_id=worker_id, phone=normalize_phone(phone), **kw)

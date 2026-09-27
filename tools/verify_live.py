@@ -1,31 +1,31 @@
-"""verify_live.py — Nokia NaC canlı erişilebilirlik sondası (spec kuralı 0.3).
+"""verify_live.py — Nokia NaC live availability probe (spec rule 0.3).
 
-Portföyün kullandığı BÜTÜN CAMARA uçlarını tek tek dener, sonucu kaydeder ve
-her projenin `docs/api-availability.md` tablosundaki "SIMULATOR planında test"
-kolonunu otomatik doldurur. Amaç: elle tablo doldurma işini sıfıra indirmek.
+Tries ALL CAMARA endpoints the portfolio uses one by one, records the result and
+automatically fills the "SIMULATOR planında test" column in each project's
+`docs/api-availability.md` table. Goal: reduce manual table filling to zero.
 
-Kullanım
---------
-    # 1) Önce yerel simülatöre karşı prova (anahtar gerekmez, hiçbir şeyi bozmaz)
+Usage
+-----
+    # 1) First, a rehearsal against the local simulator (no key needed, breaks nothing)
     python tools/verify_live.py --mode simulator --base http://127.0.0.1:8081
 
-    # 2) Nokia hesabı açıldıktan sonra gerçek çağrı + tabloları güncelle
+    # 2) After the Nokia account is opened: real calls + update the tables
     python tools/verify_live.py --mode live --patch
 
-    # 3) Abonelik / QoD gibi KAYIT OLUŞTURAN uçları da dene (oluşturur ve siler)
-    python tools/verify_live.py --mode live --include-write --sink https://<tunel>/webhooks/probe --patch
+    # 3) Also try endpoints that CREATE RECORDS, such as subscriptions / QoD (creates and deletes)
+    python tools/verify_live.py --mode live --include-write --sink https://<tunnel>/webhooks/probe --patch
 
-Ortam değişkenleri (.env veya kabuk):
-    NAC_RAPIDAPI_KEY        RapidAPI anahtarı (zorunlu, live)
-    NAC_OAUTH_TOKEN         passthrough/ uçları için Bearer token
-    NAC_OAUTH_TOKEN_URL     verilirse client-credentials ile token alınır
+Environment variables (.env or shell):
+    NAC_RAPIDAPI_KEY        RapidAPI key (required, live)
+    NAC_OAUTH_TOKEN         Bearer token for passthrough/ endpoints
+    NAC_OAUTH_TOKEN_URL     if given, a token is obtained via client-credentials
     NAC_OAUTH_CLIENT_ID     ^
     NAC_OAUTH_CLIENT_SECRET ^
-    NAC_PROBE_PHONE         sonda numarası (varsayılan +905551234567)
-    PUBLIC_BASE_URL         abonelik sink'i için public HTTPS taban adresi
+    NAC_PROBE_PHONE         probe number (default +905551234567)
+    PUBLIC_BASE_URL         public HTTPS base address for the subscription sink
 
-Kural: ham numara hiçbir çıktıda görünmez (`_mask_deep`). Uydurma sonuç yazılmaz —
-denenmeyen uç tabloda "☐ yapılmadı" kalır.
+Rule: the raw number appears in no output (`_mask_deep`). No fabricated results are written —
+an endpoint that was not tried stays "☐ yapılmadı" (not done) in the table.
 """
 from __future__ import annotations
 
@@ -44,23 +44,23 @@ ROOT = SHARED
 sys.path.insert(0, str(SHARED))                  # packages/ lives at the repository root
 
 from packages.nac_client import NacClient, NacConfig, NacError, mask_phone  # noqa: E402
-from packages.nac_client.client import P  # doğrulanmış path sözlüğü        # noqa: E402
+from packages.nac_client.client import P  # verified path dictionary       # noqa: E402
 
-# Yamalanacak projeler. `_template` BİLEREK dışarıda: tablosu yeni projelere kopyalanan
-# boş iskelet ("proje agent'ı doldurur") — sonda sonucuyla kirletilmez.
+# Projects to patch. `_template` is DELIBERATELY left out: its table is the empty skeleton copied
+# into new projects ("the project agent fills it in") — it is not polluted with probe results.
 PROJECTS = ["heatshield"]
 
-# ---------------------------------------------------------------- sonda tanımları
+# ---------------------------------------------------------------- probe definitions
 
 
 @dataclass
 class Probe:
     key: str
-    label: str  # tabloda/raporda görünen ad
-    paths: list[str]  # bu satırı tabloda bulmak için kullanılacak path parçaları
+    label: str  # name shown in the table/report
+    paths: list[str]  # path fragments used to find this row in the table
     run: Callable[[NacClient, "ProbeCtx"], Any]
-    write: bool = False  # kayıt oluşturur mu (abonelik/QoD) → --include-write ister
-    note: str = ""  # canlıda bilinen kısıt
+    write: bool = False  # does it create a record (subscription/QoD) → requires --include-write
+    note: str = ""  # known limitation in live use
 
 
 @dataclass
@@ -70,7 +70,7 @@ class ProbeCtx:
     lat: float = 25.2854
     lng: float = 51.5310
     radius_m: float = 300.0
-    created: list[tuple[str, str]] = field(default_factory=list)  # (tip, id) → temizlik
+    created: list[tuple[str, str]] = field(default_factory=list)  # (kind, id) → cleanup
 
 
 def _days_ago(n: int) -> str:
@@ -78,7 +78,7 @@ def _days_ago(n: int) -> str:
 
 
 def _cleanup_sub(ctx: ProbeCtx, kind: str, res: Any) -> Any:
-    """Abonelik/oturum yanıtından id'yi al, temizlik listesine ekle."""
+    """Take the id from the subscription/session response and add it to the cleanup list."""
     sid = (res.data or {}).get("subscriptionId") or (res.data or {}).get("sessionId") or (res.data or {}).get("id")
     if sid:
         ctx.created.append((kind, str(sid)))
@@ -86,7 +86,7 @@ def _cleanup_sub(ctx: ProbeCtx, kind: str, res: Any) -> Any:
 
 
 PROBES: list[Probe] = [
-    # --- passthrough (Bearer + RapidAPI anahtarı) -------------------------------
+    # --- passthrough (Bearer + RapidAPI key) -----------------------------------
     Probe("number_recycling", "Number Recycling", [P["number_recycling"]],
           lambda c, x: c.number_recycling(x.phone, _days_ago(30))),
     Probe("call_forwardings", "Call Forwarding Signal — tümü", [P["call_forwardings"]],
@@ -112,7 +112,7 @@ PROBES: list[Probe] = [
           lambda c, x: c.device_swap_date(x.phone)),
     Probe("consent", "Consent Info", [P["consent"]],
           lambda c, x: c.consent(x.phone, ["device-swap:read", "sim-swap:read"], "identity-assurance")),
-    # --- device-status / konum (yalnız RapidAPI anahtarı) -----------------------
+    # --- device-status / location (RapidAPI key only) --------------------------
     Probe("reachability", "Device Reachability Status", [P["reachability"]],
           lambda c, x: c.reachability(x.phone)),
     Probe("roaming", "Device Roaming Status", [P["roaming"]],
@@ -123,7 +123,7 @@ PROBES: list[Probe] = [
           lambda c, x: c.location_verify(x.phone, x.lat, x.lng, x.radius_m, 3600)),
     Probe("congestion_query", "Congestion Insights", [P["congestion_query"]],
           lambda c, x: c.congestion_query(x.phone)),
-    # --- abonelikler ve QoD: KAYIT OLUŞTURUR ------------------------------------
+    # --- subscriptions and QoD: CREATE RECORDS ----------------------------------
     Probe("geofencing_subs", "Geofencing Subscriptions", [P["geofencing_subs"]],
           lambda c, x: _cleanup_sub(x, "geofencing", c.geofence_subscribe(x.phone, x.lat, x.lng, x.radius_m, x.sink)),
           write=True, note="Canlıda sink public HTTPS olmalı (ngrok/cloudflare tüneli)."),
@@ -140,14 +140,14 @@ PROBES: list[Probe] = [
           lambda c, x: c.qod_list(x.phone)),
 ]
 
-# ---------------------------------------------------------------- yardımcılar
+# ---------------------------------------------------------------- helpers
 
 _PHONE_RE = re.compile(r"\+[0-9]{8,15}")
 
 
 def _shape(data: Any) -> list[str]:
-    """Yanıtın biçimi — jüri/tablo için "hangi alanlar döndü" bilgisi.
-    CAMARA bazı uçlarda dizi döner (ör. call-forwardings), o zaman alan adı yoktur."""
+    """The shape of the response — "which fields came back", for the jury/table.
+    On some endpoints CAMARA returns an array (e.g. call-forwardings); then there are no field names."""
     if isinstance(data, dict):
         return sorted(data.keys())
     if isinstance(data, list):
@@ -169,7 +169,7 @@ def _mask_deep(value: Any) -> Any:
 
 
 def load_dotenv(path: Path) -> int:
-    """Basit .env okuyucu (python-dotenv bağımlılığı eklemeden)."""
+    """Simple .env reader (without adding a python-dotenv dependency)."""
     if not path.exists():
         return 0
     n = 0
@@ -186,7 +186,7 @@ def load_dotenv(path: Path) -> int:
 
 
 def fetch_oauth_token() -> str | None:
-    """NAC_OAUTH_TOKEN_URL verilmişse client-credentials ile token alır."""
+    """If NAC_OAUTH_TOKEN_URL is given, obtains a token via client-credentials."""
     url = os.environ.get("NAC_OAUTH_TOKEN_URL")
     cid = os.environ.get("NAC_OAUTH_CLIENT_ID")
     secret = os.environ.get("NAC_OAUTH_CLIENT_SECRET")
@@ -204,26 +204,26 @@ def fetch_oauth_token() -> str | None:
     return tok
 
 
-# ---------------------------------------------------------------- sonda koşucusu
+# ---------------------------------------------------------------- probe runner
 
 VERDICT_OK = "✅"
 VERDICT_REACHED = "◐"
 
-# CAMARA hata gövdeleri kodludur (ör. LOCATION_RETRIEVAL.UNABLE_TO_LOCATE). Böyle bir kod
-# gördüysek uç GERÇEKTEN VAR ve CAMARA konuşuyor — sadece test verisi olumlu sonuç vermedi.
-# ALAN.KOD — en bilgilendirici. Her iki yanda en az 2 karakter: `QOD.SESSION_NOT_FOUND` gibi kısa
-# alan adlarını da yakalar, düz metindeki "A.B" baş harflerini yakalamaz.
+# CAMARA error bodies carry codes (e.g. LOCATION_RETRIEVAL.UNABLE_TO_LOCATE). If we saw such a code,
+# the endpoint REALLY EXISTS and speaks CAMARA — the test data just did not produce a positive result.
+# DOMAIN.CODE — the most informative. At least 2 characters on each side: also catches short domain
+# names such as `QOD.SESSION_NOT_FOUND`, but not "A.B" initials in plain text.
 _DOTTED_RE = re.compile(r"\b([A-Z][A-Z0-9_]+\.[A-Z][A-Z0-9_]+)\b")
-_BARE_RE = re.compile(r"\b([A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+)\b")  # SADECE_KOD
+_BARE_RE = re.compile(r"\b([A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+)\b")  # BARE_CODE
 
 
 def camara_code(rec: dict) -> str | None:
-    """Hata gövdesinden CAMARA hata kodunu çıkarır. `ALAN.KOD` biçimi `KOD`a tercih edilir."""
+    """Extracts the CAMARA error code from the error body. The `DOMAIN.CODE` form is preferred over `CODE`."""
     if rec.get("ok") or rec.get("skipped"):
         return None
     raw = str(rec.get("message") or "")
     texts = [raw]
-    # gövde JSON ise iç `code`/`message` alanlarını da tara
+    # if the body is JSON, also scan the inner `code`/`message` fields
     i, j = raw.find("{"), raw.rfind("}")
     if 0 <= i < j:
         try:
@@ -241,8 +241,8 @@ def camara_code(rec: dict) -> str | None:
 
 
 def endpoint_reached(rec: dict) -> bool:
-    """Uç mevcut mu? 200 ya da CAMARA kodlu iş kuralı hatası → evet.
-    401/403 (yetki), timeout/network/devre kesici → hayır, bilgi yok."""
+    """Does the endpoint exist? 200 or a CAMARA-coded business-rule error → yes.
+    401/403 (authorization), timeout/network/circuit breaker → no, no information."""
     if rec.get("ok"):
         return True
     if rec.get("kind") in ("auth", "timeout", "network", "circuit_open", "probe_error"):
@@ -251,13 +251,13 @@ def endpoint_reached(rec: dict) -> bool:
 
 
 def verdict_cell(rec: dict, stamp: str) -> str:
-    """api-availability.md son kolonuna yazılacak tek satırlık hüküm."""
+    """One-line verdict to write into the last column of api-availability.md."""
     if rec["ok"]:
         return f"{VERDICT_OK} 200 · {rec['latency_ms']} ms · {stamp}"
     kind, status = rec.get("kind"), rec.get("status")
     code = camara_code(rec)
     if code:
-        # uç ayakta, iş kuralı hatası döndü — tabloda "yok" gibi görünmesin
+        # the endpoint is up and returned a business-rule error — it must not look "missing" in the table
         return f"{VERDICT_REACHED} uç var · {status or ''} `{code}` · {stamp}".replace("·  ·", "·")
     label = {
         "auth": "plan/yetki kapsamı dışı",
@@ -299,7 +299,7 @@ def run_probes(client: NacClient, ctx: ProbeCtx, include_write: bool, only: set[
                 print(f"  ◐  {pr.label:<44} uç var, iş kuralı hatası: {e.status} {code}")
             else:
                 print(f"  ⚠  {pr.label:<44} {e.kind}{f' {e.status}' if e.status else ''}")
-        except Exception as e:  # sonda çökmesin
+        except Exception as e:  # do not let the probe crash
             rec = {"key": pr.key, "label": pr.label, "paths": pr.paths, "ok": False, "kind": "probe_error",
                    "message": f"{type(e).__name__}: {e}", "note": pr.note}
             print(f"  ✖  {pr.label:<44} sonda hatası: {type(e).__name__}")
@@ -308,7 +308,7 @@ def run_probes(client: NacClient, ctx: ProbeCtx, include_write: bool, only: set[
 
 
 def cleanup(client: NacClient, ctx: ProbeCtx) -> list[dict]:
-    """Sonda sırasında oluşturulan abonelik/oturumları sil — arkada çöp bırakma."""
+    """Delete the subscriptions/sessions created during the probe — leave no garbage behind."""
     done = []
     for kind, sid in ctx.created:
         try:
@@ -328,14 +328,14 @@ def cleanup(client: NacClient, ctx: ProbeCtx) -> list[dict]:
     return done
 
 
-# ---------------------------------------------------------------- tablo yamacı
+# ---------------------------------------------------------------- table patcher
 
 TEST_COL_HINT = "SIMULATOR planında test"
 PLACEHOLDER_RE = re.compile(r"^\s*(☐|\[ \]|—|-)?\s*(yapılmadı|yapilmadi)?\s*$", re.IGNORECASE)
 
 
 def _split_row(line: str) -> list[str]:
-    """Markdown tablo satırını hücrelere böler (baş/son boru hariç)."""
+    """Splits a Markdown table row into cells (excluding the leading/trailing pipe)."""
     s = line.strip()
     if s.startswith("|"):
         s = s[1:]
@@ -349,7 +349,7 @@ def _join_row(cells: list[str]) -> str:
 
 
 def patch_availability(project_dir: Path, results: list[dict], stamp: str, dry: bool) -> dict:
-    """`docs/api-availability.md` içindeki test kolonunu path eşleşmesine göre doldurur."""
+    """Fills the test column in `docs/api-availability.md` by path match."""
     doc = project_dir / "docs" / "api-availability.md"
     if not doc.exists():
         return {"project": project_dir.name, "error": "api-availability.md yok"}
@@ -359,7 +359,7 @@ def patch_availability(project_dir: Path, results: list[dict], stamp: str, dry: 
     for rec in results:
         for p in rec["paths"]:
             by_path.append((p.strip("/"), rec))
-    # uzun path'ler önce → "sim-swap/v0/check" ile "sim-swap/v0" karışmasın
+    # longer paths first → so "sim-swap/v0/check" and "sim-swap/v0" do not get mixed up
     by_path.sort(key=lambda t: -len(t[0]))
 
     col_idx: int | None = None
@@ -376,9 +376,9 @@ def patch_availability(project_dir: Path, results: list[dict], stamp: str, dry: 
                 if TEST_COL_HINT in c:
                     col_idx = j
                     break
-            continue  # başlık satırını yamalamayız
+            continue  # we do not patch the header row
         if set(line.replace("|", "").replace("-", "").replace(":", "").strip()) == set():
-            continue  # ayırıcı satır
+            continue  # separator row
         if col_idx >= len(cells):
             continue
         row_text = line
@@ -389,14 +389,14 @@ def patch_availability(project_dir: Path, results: list[dict], stamp: str, dry: 
                 unmatched.append(first)
             continue
         if hit.get("skipped"):
-            # denenmedi → tabloda "☐ yapılmadı" olarak KALSIN; uydurma hüküm yazmıyoruz
+            # not tried → let it STAY "☐ yapılmadı" in the table; we do not write a fabricated verdict
             skipped_rows.append(hit["label"])
             continue
         cur = cells[col_idx].strip()
         if cur.startswith((VERDICT_OK, VERDICT_REACHED, "⚠")):
-            pass  # önceki sonda sonucu — üzerine yaz (en güncel kazanır)
+            pass  # previous probe result — overwrite it (the most recent wins)
         elif not PLACEHOLDER_RE.match(cur):
-            # elle yazılmış not var: hükmü ekle, notu koru
+            # there is a hand-written note: add the verdict, keep the note
             cells[col_idx] = f"{verdict_cell(hit, stamp)} — {cur}"
             lines[i] = _join_row(cells)
             touched.append(hit["label"])
@@ -405,7 +405,7 @@ def patch_availability(project_dir: Path, results: list[dict], stamp: str, dry: 
         lines[i] = _join_row(cells)
         touched.append(hit["label"])
 
-    # "Canlı test kontrol listesi" — doğrulanan maddeleri işaretle
+    # "Canlı test kontrol listesi" (live test checklist) — tick the verified items
     any_ok = any(r.get("ok") for r in results)
     nv_ok = any(r.get("ok") for r in results if r["key"] == "number_verify")
     for i, line in enumerate(lines):
@@ -426,10 +426,10 @@ def patch_availability(project_dir: Path, results: list[dict], stamp: str, dry: 
             "unmatched": unmatched, "skipped_rows": skipped_rows, "dry": dry}
 
 
-# ---------------------------------------------------------------- ana envanter tablosu
+# ---------------------------------------------------------------- master inventory table
 
 def which_projects(paths: list[str]) -> list[str]:
-    """Bu ucu hangi projelerin api-availability.md'si anıyor — türetilmiş, elle liste tutmuyoruz."""
+    """Which projects' api-availability.md mention this endpoint — derived; we do not keep a manual list."""
     hits = []
     for name in PROJECTS:
         doc = ROOT / name / "docs" / "api-availability.md"
@@ -442,7 +442,7 @@ def which_projects(paths: list[str]) -> list[str]:
 
 
 def write_master_table(results: list[dict], meta: dict, stamp: str, dry: bool) -> Path:
-    """Portföydeki BÜTÜN uçların tek tablosu — kök docs/ altında."""
+    """A single table of ALL endpoints in the portfolio — under the root docs/."""
     doc = SHARED / "docs" / "api-availability-master.md"
     rows = []
     for r in results:
@@ -479,7 +479,7 @@ def write_master_table(results: list[dict], meta: dict, stamp: str, dry: bool) -
     return doc
 
 
-# ---------------------------------------------------------------- rapor
+# ---------------------------------------------------------------- report
 
 def write_report(results: list[dict], meta: dict, cleaned: list[dict]) -> tuple[Path, Path]:
     out_dir = SHARED / "evidence"
@@ -565,7 +565,7 @@ def main() -> int:
         rapidapi_host=os.environ.get("NAC_RAPIDAPI_HOST", "network-as-code.nokia.rapidapi.com"),
         oauth_token=os.environ.get("NAC_OAUTH_TOKEN", ""),
         timeout_s=args.timeout, retries=args.retries,
-        breaker_threshold=99,  # sonda: bir uçtaki hata diğerlerini kapatmasın
+        breaker_threshold=99,  # probe: an error on one endpoint must not shut off the others
     )
     if args.mode == "live" and not cfg.rapidapi_key:
         print("ERROR: NAC_RAPIDAPI_KEY is not set. Create .env from .env.example, or rehearse with --mode simulator.", file=sys.stderr)
@@ -597,9 +597,9 @@ def main() -> int:
 
     if args.patch:
         stamp = datetime.now().strftime("%d.%m.%Y")
-        # Güvenlik kilidi: canlı olmayan sonucun "SIMULATOR planında test" kolonuna yazılması
-        # uydurma kanıt olur. Ana envanter tablosu yazılır (başlığında modu söylüyor), proje
-        # tabloları --force olmadan dokunulmaz.
+        # Safety lock: writing a non-live result into the "SIMULATOR planında test" column would be
+        # fabricated evidence. The master inventory table is written (its header states the mode); the
+        # project tables are not touched without --force.
         table_dry = args.dry_run or (args.mode != "live" and not args.force)
         if args.mode != "live" and not args.force:
             print("\nKİLİT: mod canlı değil → proje tabloları DEĞİŞTİRİLMEDİ (uydurma kanıt yazmıyoruz).")
@@ -614,7 +614,7 @@ def main() -> int:
                 extra = f" · {len(r['skipped_rows'])} satır denenmedi" if r["skipped_rows"] else ""
                 extra += f" · TABLODA EŞLEŞMEYEN: {', '.join(r['unmatched'])}" if r["unmatched"] else ""
                 print(f"  {name:<14} kolon={r['col']} · {len(r['patched'])} {verb}{extra}")
-        # Ana envanter her modda yazılır — başlığında hangi modda koştuğunu açıkça söylüyor.
+        # The master inventory is written in every mode — its header states clearly which mode it ran in.
         m = write_master_table(results, meta, stamp, args.dry_run)
         print(f"  ana envanter   {m.relative_to(SHARED)}" + (" (dry-run)" if args.dry_run else ""))
     return 0 if bad == 0 else 1

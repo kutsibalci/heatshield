@@ -1,9 +1,9 @@
-"""Normalize edilmiş hata tipleri. Üst katman sadece bunları görür."""
+"""Normalized error types. The upper layer only ever sees these."""
 from __future__ import annotations
 
 
 class NacError(Exception):
-    """Tüm NaC hatalarının tabanı.
+    """Base class of all NaC errors.
 
     kind: timeout | auth | rate_limit | not_found | bad_request | server | network | circuit_open | unknown
     """
