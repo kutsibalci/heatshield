@@ -29,28 +29,11 @@ log.addFilter(MaskingFilter())
 
 # --- Verified paths (docs/nac-api-reference.md) ---------------------------------------------
 P = {
-    "number_recycling": "passthrough/camara/v1/number-recycling/number-recycling/v0.2/check",
-    "call_forwardings": "passthrough/camara/v1/call-forwarding-signal/call-forwarding-signal/v0.3/call-forwardings",
-    "unconditional_cf": "passthrough/camara/v1/call-forwarding-signal/call-forwarding-signal/v0.3/unconditional-call-forwardings",
-    "kyc_tenure": "passthrough/camara/v1/kyc-tenure/kyc-tenure/v0.1/check-tenure",
-    "kyc_age": "passthrough/camara/v1/kyc-age-verification/kyc-age-verification/v0.1/verify",
-    "kyc_match": "passthrough/camara/v1/kyc-match/kyc-match/v0.3/match",
-    "number_verify": "passthrough/camara/v1/number-verification/number-verification/v2/verify",
-    "device_phone_number": "passthrough/camara/v1/number-verification/number-verification/v2/device-phone-number",
-    "sim_swap_check": "passthrough/camara/v1/sim-swap/sim-swap/v0/check",
-    "sim_swap_date": "passthrough/camara/v1/sim-swap/sim-swap/v0/retrieve-date",
-    "device_swap_check": "passthrough/camara/v1/device-swap/device-swap/v1/check",
-    "device_swap_date": "passthrough/camara/v1/device-swap/device-swap/v1/retrieve-date",
-    "consent": "passthrough/camara/v1/consent-info/consent-info/v0.1/retrieve",
     "reachability": "device-status/device-reachability-status/v1/retrieve",
-    "roaming": "device-status/device-roaming-status/v1/retrieve",
-    "reachability_subs": "device-status/device-reachability-status-subscriptions/v0.8/subscriptions",
-    "roaming_subs": "device-status/device-roaming-status-subscriptions/v0.8/subscriptions",
     "geofencing_subs": "geofencing-subscriptions/v0.3/subscriptions",
     "location_retrieve": "location-retrieval/v0/retrieve",
     "location_verify": "location-verification/v1/verify",
     "congestion_query": "congestion-insights/v0/query",
-    "congestion_subs": "congestion-insights/v0/subscriptions",
     "qod_sessions": "quality-on-demand/v1/sessions",
     "qod_retrieve": "quality-on-demand/v1/retrieve-sessions",
 }
@@ -169,76 +152,10 @@ class NacClient:
     def health(self) -> dict:
         return {"mode": self.cfg.mode, "base_url": self.cfg.base_url if self.cfg.mode != "fixture" else None, "breaker": self.breaker.snapshot(), "recent_calls": len(self.calls)}
 
-    # ---------------------------------------------------------------- identity / fraud
-    def number_recycling(self, phone: str, specified_date: str) -> NacResult:
-        p = normalize_phone(phone)
-        return self._call("number-recycling", "POST", P["number_recycling"], json={"phoneNumber": p, "specifiedDate": specified_date}, phone=p,
-                          fixture_fn=lambda: self.fx.number_recycling(p, specified_date))
-
-    def call_forwardings(self, phone: str) -> NacResult:
-        p = normalize_phone(phone)
-        return self._call("call-forwarding-signal", "POST", P["call_forwardings"], json={"phoneNumber": p}, phone=p,
-                          fixture_fn=lambda: self.fx.call_forwardings(p))
-
-    def unconditional_call_forwarding(self, phone: str) -> NacResult:
-        p = normalize_phone(phone)
-        return self._call("call-forwarding-signal", "POST", P["unconditional_cf"], json={"phoneNumber": p}, phone=p,
-                          fixture_fn=lambda: self.fx.unconditional_call_forwarding(p))
-
-    def kyc_tenure(self, phone: str, tenure_date: str) -> NacResult:
-        p = normalize_phone(phone)
-        return self._call("kyc-tenure", "POST", P["kyc_tenure"], json={"phoneNumber": p, "tenureDate": tenure_date}, phone=p,
-                          fixture_fn=lambda: self.fx.kyc_tenure(p, tenure_date))
-
-    def kyc_age(self, phone: str, age_threshold: int, **fields) -> NacResult:
-        p = normalize_phone(phone)
-        body = {"phoneNumber": p, "ageThreshold": age_threshold, **{_camel(k): v for k, v in fields.items() if v is not None}}
-        return self._call("kyc-age-verification", "POST", P["kyc_age"], json=body, phone=p,
-                          fixture_fn=lambda: self.fx.kyc_age(p, age_threshold, **fields))
-
-    def kyc_match(self, phone: str, **fields) -> NacResult:
-        p = normalize_phone(phone)
-        body = {"phoneNumber": p, **{_camel(k): v for k, v in fields.items() if v is not None}}
-        return self._call("kyc-match", "POST", P["kyc_match"], json=body, phone=p,
-                          fixture_fn=lambda: self.fx.kyc_match(p, **fields))
-
-    def number_verify(self, phone: str) -> NacResult:
-        """In live use: called with the OIDC token the device obtains over mobile data (3-legged). SIMULATOR/fixture in the prototype."""
-        p = normalize_phone(phone)
-        return self._call("number-verification", "POST", P["number_verify"], json={"phoneNumber": p}, phone=p,
-                          fixture_fn=lambda: self.fx.number_verify(p))
-
-    def sim_swap_check(self, phone: str, max_age_h: int | None = None) -> NacResult:
-        p = normalize_phone(phone)
-        body = {"phoneNumber": p, **({"maxAge": max_age_h} if max_age_h is not None else {})}
-        return self._call("sim-swap", "POST", P["sim_swap_check"], json=body, phone=p, fixture_fn=lambda: self.fx.sim_swap_check(p, max_age_h))
-
-    def sim_swap_date(self, phone: str) -> NacResult:
-        p = normalize_phone(phone)
-        return self._call("sim-swap", "POST", P["sim_swap_date"], json={"phoneNumber": p}, phone=p, fixture_fn=lambda: self.fx.sim_swap_date(p))
-
-    def device_swap_check(self, phone: str, max_age_h: int | None = None) -> NacResult:
-        p = normalize_phone(phone)
-        body = {"phoneNumber": p, **({"maxAge": max_age_h} if max_age_h is not None else {})}
-        return self._call("device-swap", "POST", P["device_swap_check"], json=body, phone=p, fixture_fn=lambda: self.fx.device_swap_check(p, max_age_h))
-
-    def device_swap_date(self, phone: str) -> NacResult:
-        p = normalize_phone(phone)
-        return self._call("device-swap", "POST", P["device_swap_date"], json={"phoneNumber": p}, phone=p, fixture_fn=lambda: self.fx.device_swap_date(p))
-
-    def consent(self, phone: str, scopes: list[str], purpose: str) -> NacResult:
-        p = normalize_phone(phone)
-        return self._call("consent-info", "POST", P["consent"], json={"phoneNumber": p, "scopes": scopes, "purpose": purpose}, phone=p,
-                          fixture_fn=lambda: self.fx.consent(p, scopes, purpose))
-
     # ---------------------------------------------------------------- device / location
     def reachability(self, phone: str) -> NacResult:
         p = normalize_phone(phone)
         return self._call("device-reachability-status", "POST", P["reachability"], json={"device": {"phoneNumber": p}}, phone=p, fixture_fn=lambda: self.fx.reachability(p))
-
-    def roaming(self, phone: str) -> NacResult:
-        p = normalize_phone(phone)
-        return self._call("device-roaming-status", "POST", P["roaming"], json={"device": {"phoneNumber": p}}, phone=p, fixture_fn=lambda: self.fx.roaming(p))
 
     def location_retrieve(self, phone: str, max_age_s: int | None = None) -> NacResult:
         p = normalize_phone(phone)
@@ -291,31 +208,6 @@ class NacClient:
 
     def geofence_delete(self, subscription_id: str) -> NacResult:
         return self._call("geofencing-subscriptions", "DELETE", f"{P['geofencing_subs']}/{subscription_id}", fixture_fn=lambda: self.fx.delete_subscription(subscription_id))
-
-    def reachability_subscribe(self, phone: str, sink: str, *, types: list[str] | None = None, sink_token: str | None = None, expire: datetime | None = None, initial_event: bool = True) -> NacResult:
-        p = normalize_phone(phone)
-        types = types or [
-            "org.camaraproject.device-reachability-status-subscriptions.v0.reachability-data",
-            "org.camaraproject.device-reachability-status-subscriptions.v0.reachability-disconnected",
-        ]
-        body = self._sub_body(p, sink, types, sink_token, expire, None, initial_event)
-        return self._call("device-reachability-status-subscriptions", "POST", P["reachability_subs"], json=body, phone=p, fixture_fn=lambda: self.fx.create_subscription("reachability", body))
-
-    def reachability_unsubscribe(self, subscription_id: str) -> NacResult:
-        return self._call("device-reachability-status-subscriptions", "DELETE", f"{P['reachability_subs']}/{subscription_id}", fixture_fn=lambda: self.fx.delete_subscription(subscription_id))
-
-    def roaming_subscribe(self, phone: str, sink: str, *, types: list[str] | None = None, sink_token: str | None = None, expire: datetime | None = None, initial_event: bool = True) -> NacResult:
-        p = normalize_phone(phone)
-        types = types or [
-            "org.camaraproject.device-roaming-status-subscriptions.v0.roaming-on",
-            "org.camaraproject.device-roaming-status-subscriptions.v0.roaming-off",
-            "org.camaraproject.device-roaming-status-subscriptions.v0.roaming-change-country",
-        ]
-        body = self._sub_body(p, sink, types, sink_token, expire, None, initial_event)
-        return self._call("device-roaming-status-subscriptions", "POST", P["roaming_subs"], json=body, phone=p, fixture_fn=lambda: self.fx.create_subscription("roaming", body))
-
-    def roaming_unsubscribe(self, subscription_id: str) -> NacResult:
-        return self._call("device-roaming-status-subscriptions", "DELETE", f"{P['roaming_subs']}/{subscription_id}", fixture_fn=lambda: self.fx.delete_subscription(subscription_id))
 
     # ---------------------------------------------------------------- QoD
     def qod_create(self, phone: str, app_server_ipv4: str, qos_profile: str, duration_s: int = 3600, sink: str | None = None) -> NacResult:

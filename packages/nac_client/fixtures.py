@@ -3,24 +3,11 @@
 Profile (per phone) → produces responses in CAMARA format. Both NacClient's `fixture` mode and the
 `apps/simulator` HTTP mock server use this class, so a single fixture set behaves the same in both places.
 
-Profile fields (all optional, merged with DEFAULT_PROFILE):
-  recycled_date        "YYYY-MM-DD" | None   the number was assigned to a new subscriber on this date
-  tenure_since         "YYYY-MM-DD"          date the current subscriber got the line
-  contract_type        PAYG | PAYM | Business
-  age_check            "true" | "false" | "not_available"
-  verified_status      bool                  whether the operator verified identity with a document
-  kyc                  {name, given_name, family_name, birthdate, address, email, id_document}
-  number_verified      bool                  Number Verification answer
-  device_phone_number  str | None            the device's real number (verify: for the equality check)
-  sim_swap_at          ISO datetime | None
-  device_swap_at       ISO datetime | None
-  call_forwarding      ["inactive"] | ["unconditional"] | ["conditional_busy", ...]
+Profile fields (all optional, merged with DEFAULT_PROFILE) — only what the six APIs HeatShield calls read:
   reachable            bool ; connectivity ["DATA","SMS"]
-  roaming              bool ; country_code int ; country_name [str]
   location             {"lat":..,"lng":..,"radius":..} | None   (None → location UNKNOWN)
   congestion           Low | Medium | High
   qod_available        bool
-  consent              {"<scope>": "valid" | "PENDING" | "REVOKED"} (default: all valid)
   latency_ms           int                   artificial latency (demo: slow API)
   fail                 None | "timeout" | 500 | 429 | 403   error injection (demo: circuit breaker)
 """
@@ -30,33 +17,18 @@ import copy
 import json
 import math
 import uuid
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from .errors import NacError, NacTimeout
 
 DEFAULT_PROFILE: dict[str, Any] = {
-    "recycled_date": None,
-    "tenure_since": "2018-01-01",
-    "contract_type": "PAYM",
-    "age_check": "true",
-    "verified_status": True,
-    "kyc": {},
-    "number_verified": True,
-    "device_phone_number": None,
-    "sim_swap_at": None,
-    "device_swap_at": None,
-    "call_forwarding": ["inactive"],
     "reachable": True,
     "connectivity": ["DATA", "SMS"],
-    "roaming": False,
-    "country_code": 90,
-    "country_name": ["Turkey"],
     "location": None,
     "congestion": "Low",
     "qod_available": True,
-    "consent": {},
     "latency_ms": 0,
     "fail": None,
 }
@@ -69,12 +41,6 @@ def _parse_dt(v: str | None) -> datetime | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
-
-
-def _parse_date(v: str | None) -> date | None:
-    if not v:
-        return None
-    return date.fromisoformat(v[:10])
 
 
 def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -149,90 +115,6 @@ class FixtureBackend:
             raise error_from_status(api, fail, "fixture: injected fault")
 
     # ---- CAMARA responses -------------------------------------------------
-    def number_recycling(self, phone: str, specified_date: str) -> dict:
-        prof = self.get(phone)
-        rd = _parse_date(prof.get("recycled_date"))
-        sd = _parse_date(specified_date)
-        return {"phoneNumberRecycled": bool(rd and sd and rd > sd)}
-
-    def call_forwardings(self, phone: str) -> list[str]:
-        return list(self.get(phone).get("call_forwarding") or ["inactive"])
-
-    def unconditional_call_forwarding(self, phone: str) -> dict:
-        return {"active": "unconditional" in self.call_forwardings(phone)}
-
-    def kyc_tenure(self, phone: str, tenure_date: str) -> dict:
-        prof = self.get(phone)
-        since = _parse_date(prof.get("tenure_since"))
-        td = _parse_date(tenure_date)
-        # tenureDateCheck: has the subscriber been on this line since tenureDate (or earlier)?
-        return {"tenureDateCheck": bool(since and td and since <= td), "contractType": prof.get("contract_type")}
-
-    def tenure_days(self, phone: str) -> int:
-        since = _parse_date(self.get(phone).get("tenure_since"))
-        return (self.now().date() - since).days if since else 0
-
-    def kyc_age(self, phone: str, age_threshold: int, **fields) -> dict:
-        prof = self.get(phone)
-        out = {"ageCheck": prof.get("age_check", "not_available"), "verifiedStatus": prof.get("verified_status")}
-        if fields:
-            out["identityMatchScore"] = self._match_score(prof, fields)
-        return out
-
-    def _match_score(self, prof: dict, fields: dict) -> int:
-        kyc = prof.get("kyc") or {}
-        scores = []
-        for k, v in fields.items():
-            if v is None:
-                continue
-            ref = kyc.get(k)
-            if ref is None:
-                continue
-            scores.append(100 if str(ref).strip().lower() == str(v).strip().lower() else _fuzzy(str(ref), str(v)))
-        return int(sum(scores) / len(scores)) if scores else 0
-
-    def kyc_match(self, phone: str, **fields) -> dict:
-        prof = self.get(phone)
-        kyc = prof.get("kyc") or {}
-        out: dict[str, Any] = {}
-        for k, v in fields.items():
-            if v is None:
-                continue
-            camel = _camel(k)
-            ref = kyc.get(k)
-            if ref is None:
-                out[f"{camel}Match"] = "not_available"
-                continue
-            score = 100 if str(ref).strip().lower() == str(v).strip().lower() else _fuzzy(str(ref), str(v))
-            out[f"{camel}Match"] = "true" if score >= 80 else "false"
-            if k not in ("birthdate", "id_document", "gender", "country"):
-                out[f"{camel}MatchScore"] = score
-        return out
-
-    def number_verify(self, phone: str) -> dict:
-        prof = self.get(phone)
-        dev = prof.get("device_phone_number")
-        if dev is not None:
-            return {"devicePhoneNumberVerified": dev == phone}
-        return {"devicePhoneNumberVerified": bool(prof.get("number_verified"))}
-
-    def sim_swap_check(self, phone: str, max_age_h: int | None) -> dict:
-        at = _parse_dt(self.get(phone).get("sim_swap_at"))
-        window = timedelta(hours=max_age_h if max_age_h is not None else 240)
-        return {"swapped": bool(at and self.now() - at <= window)}
-
-    def sim_swap_date(self, phone: str) -> dict:
-        at = self.get(phone).get("sim_swap_at")
-        return {"latestSimChange": at}
-
-    def device_swap_check(self, phone: str, max_age_h: int | None) -> dict:
-        at = _parse_dt(self.get(phone).get("device_swap_at"))
-        window = timedelta(hours=max_age_h if max_age_h is not None else 240)
-        return {"swapped": bool(at and self.now() - at <= window)}
-
-    def device_swap_date(self, phone: str) -> dict:
-        return {"latestDeviceChange": self.get(phone).get("device_swap_at"), "monitoredPeriod": 120}
-
     def reachability(self, phone: str) -> dict:
         prof = self.get(phone)
         return {
@@ -240,16 +122,6 @@ class FixtureBackend:
             "lastStatusTime": self.now().isoformat(),
             "reachable": bool(prof.get("reachable")),
             "connectivity": list(prof.get("connectivity") or []) if prof.get("reachable") else [],
-        }
-
-    def roaming(self, phone: str) -> dict:
-        prof = self.get(phone)
-        return {
-            "device": {"phoneNumber": phone},
-            "lastStatusTime": self.now().isoformat(),
-            "roaming": bool(prof.get("roaming")),
-            "countryCode": prof.get("country_code"),
-            "countryName": prof.get("country_name"),
         }
 
     def location_retrieve(self, phone: str, max_age: int | None = None) -> dict:
@@ -300,20 +172,6 @@ class FixtureBackend:
             "congestionLevel": level,
             "confidenceLevel": 85,
         }]
-
-    def consent(self, phone: str, scopes: list[str], purpose: str) -> dict:
-        prof = self.get(phone)
-        table = prof.get("consent") or {}
-        info = []
-        for s in scopes:
-            st = table.get(s, "valid")
-            info.append({
-                "scopes": [s], "purpose": purpose,
-                "statusValidForProcessing": st == "valid",
-                "statusReason": None if st == "valid" else st,
-                "expirationDate": None,
-            })
-        return {"statusInfo": info, "captureUrl": None if all(i["statusValidForProcessing"] for i in info) else "https://consent.example/capture"}
 
     # ---- subscriptions / QoD ----------------------------------------------
     def create_subscription(self, kind: str, body: dict) -> dict:
@@ -392,16 +250,3 @@ class FixtureBackend:
             "data": {"subscriptionId": subscription_id, "device": {"phoneNumber": phone}, **(extra or {})},
         }
 
-
-def _camel(snake: str) -> str:
-    parts = snake.split("_")
-    return parts[0] + "".join(p.capitalize() for p in parts[1:])
-
-
-def _fuzzy(a: str, b: str) -> int:
-    """Simple similarity: shared-character ratio (0-100). Good enough for the prototype."""
-    a, b = a.lower(), b.lower()
-    if not a or not b:
-        return 0
-    from difflib import SequenceMatcher
-    return int(SequenceMatcher(None, a, b).ratio() * 100)
