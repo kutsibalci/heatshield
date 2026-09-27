@@ -532,22 +532,8 @@ def _congestion(site: SiteRuntime, w: WorkerRuntime, now: datetime, nac, cfg: Co
 
 
 # --------------------------------------------------------------------------- sweep
-def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, wbgt_c: float | None = None) -> dict:
-    """One sweep: site state → scoring → plan → calls → classification → escalation → evidence ledger."""
-    cfg = cfg or site.cfg
-    now = _dt(now)
-    # Align the local mock's clock with simulated time. If the fixture writes the real wall clock, the
-    # timestamps it produces come "from the future" in a simulated scenario; the freshness check becomes meaningless.
-    # In live mode `fx` only sits there as a fallback, so touching it is harmless.
-    _fx = getattr(getattr(nac, "nac", None), "fx", None) or getattr(nac, "fx", None)
-    if _fx is not None and hasattr(_fx, "set_clock"):
-        _fx.set_clock(now)
-    if wbgt_c is not None:
-        site.wbgt_c, site.wbgt_at = wbgt_c, now
-
-    # ---- 1) site state (WBGT threshold OR summer-ban hours)
-    st = R.site_state(site.wbgt_c, now, cfg.jurisdiction, cfg, site.wbgt_at)
-    site.breached, site.severity, site.level = st["breached"], st["severity"], st["level"]
+def _new_report(site: SiteRuntime, now: datetime, st: dict, cfg: Config) -> dict[str, Any]:
+    """The sweep report skeleton every stage below fills in."""
     report: dict[str, Any] = {
         "site_id": site.site_id, "now": _iso(now), "wbgt_c": site.wbgt_c, "breached": st["breached"],
         "wbgt_known": st.get("wbgt_known"), "wbgt_stale": st.get("wbgt_stale"),
@@ -562,54 +548,45 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                    "skipped_for_budget": 0, "reserve_rechecks": 0},
         "jurisdiction": cfg.jurisdiction.to_dict(),
     }
+    return report
 
-    # ---- Move 1: no breach, no query authority
-    if not st["breached"]:
-        quiet_from = len(site.ledger)          # AT THE VERY START: rows created on this path also reach the report
-        if not st.get("wbgt_known"):
-            # NO READING or a STALE one — and this does NOT MEAN "the breach is over".
-            # An audit measured that this path used to wipe all worker state: an open
-            # `probable_collapse` case, with the medic already called, was silently closed just because
-            # the meteorology feed went quiet, and the ledger wrote "Breach over".
-            # A dead feed is not the end of a breach: OPEN CASES ARE PRESERVED, only no new
-            # query authority arises (purpose limitation is preserved).
-            site.log(now, "wbgt_feed_unusable", st["reason"], source="meteorology-feed",
-                     explain=st["explain"],
-                     extra={"wbgt_c": site.wbgt_c, "wbgt_age_minutes": st.get("wbgt_age_minutes"),
-                            "max_age_minutes": cfg.budget.wbgt_max_age_minutes,
-                            "open_cases_preserved": [w.worker_id for w in site.workers.values() if w.escalated]})
-            report["note"] = ("Move 1 — the WBGT threshold could NOT be assessed (no usable reading). "
-                              "No new query authority arises, open cases are NOT closed, and this is NOT a "
-                              "statement that the site is safe.")
-        else:
-            if site.state != "passive_watch":
-                site.log(now, "site_cleared", "Breach over — open cases closed, the authority to query lapsed",
-                         source="rules", explain=st["explain"])
-            site.state = "passive_watch"
-            site.breach_started_at = None
-            for w in site.workers.values():
-                w.state, w.escalated, w.verdict, w.confidence, w.score = "passive_watch", False, None, None, 0.0
-            report["note"] = "Move 1 — no breach: only free geofence events are watched; NO query is made."
-        site.last_sweep_at, site.sweeps = now, site.sweeps + 1
-        report["state"] = site.state
-        report["workers"] = [w.to_dict() for w in site.workers.values()]
-        report["ledger_added"] = site.ledger[quiet_from:]
-        return report
 
-    ledger_from = len(site.ledger)
-    breach_is_new = site.breach_started_at is None
-    if breach_is_new:
-        site.breach_started_at = now
-        site.log(now, "breach_started", st["reason"], source="rules", explain=st["explain"],
-                 extra={"wbgt_c": site.wbgt_c, "level": st["level"]})
-    if site.state == "passive_watch":
-        site.state = "alert"
+def _quiet_sweep(site: SiteRuntime, now: datetime, st: dict, cfg: Config, report: dict) -> dict:
+    """Move 1: no breach, no query authority. Nothing is queried; open cases survive a dead feed."""
+    quiet_from = len(site.ledger)          # AT THE VERY START: rows created on this path also reach the report
+    if not st.get("wbgt_known"):
+        # NO READING or a STALE one — and this does NOT MEAN "the breach is over".
+        # An audit measured that this path used to wipe all worker state: an open
+        # `probable_collapse` case, with the medic already called, was silently closed just because
+        # the meteorology feed went quiet, and the ledger wrote "Breach over".
+        # A dead feed is not the end of a breach: OPEN CASES ARE PRESERVED, only no new
+        # query authority arises (purpose limitation is preserved).
+        site.log(now, "wbgt_feed_unusable", st["reason"], source="meteorology-feed",
+                 explain=st["explain"],
+                 extra={"wbgt_c": site.wbgt_c, "wbgt_age_minutes": st.get("wbgt_age_minutes"),
+                        "max_age_minutes": cfg.budget.wbgt_max_age_minutes,
+                        "open_cases_preserved": [w.worker_id for w in site.workers.values() if w.escalated]})
+        report["note"] = ("Move 1 — the WBGT threshold could NOT be assessed (no usable reading). "
+                          "No new query authority arises, open cases are NOT closed, and this is NOT a "
+                          "statement that the site is safe.")
+    else:
+        if site.state != "passive_watch":
+            site.log(now, "site_cleared", "Breach over — open cases closed, the authority to query lapsed",
+                     source="rules", explain=st["explain"])
+        site.state = "passive_watch"
+        site.breach_started_at = None
+        for w in site.workers.values():
+            w.state, w.escalated, w.verdict, w.confidence, w.score = "passive_watch", False, None, None, 0.0
+        report["note"] = "Move 1 — no breach: only free geofence events are watched; NO query is made."
+    site.last_sweep_at, site.sweeps = now, site.sweeps + 1
+    report["state"] = site.state
+    report["workers"] = [w.to_dict() for w in site.workers.values()]
+    report["ledger_added"] = site.ledger[quiet_from:]
+    return report
 
-    # ---- Move 1b: reconciliation with the shift roster. At the start of every breach, then periodically.
-    reconciled = _reconcile_roster(site, now, cfg, force=breach_is_new)
-    report["reconciled"] = reconciled
 
-    # ---- 2) Move 2: score and rank
+def _score_and_plan(site: SiteRuntime, now: datetime, st: dict, cfg: Config, report: dict) -> list:
+    """Move 2: score every worker still inside, plan the budget in risk order, let the model re-order."""
     candidates: list[dict] = []
     presumed_safe: list[dict] = []
     for w in site.workers.values():
@@ -645,122 +622,163 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
         site.log(now, "budget_exhausted",
                  f"Budget exhausted: {report['budget']['skipped_for_budget']} workers were not queried in this sweep "
                  f"(the list did not end, the budget did — §8 Move 2)", source="rules")
+    return plan
 
-    # ---- 3) Move 3: execute the plan in order (cost ladder)
+
+def _run_location_verify(site: SiteRuntime, now: datetime, w: WorkerRuntime, act, nac, cfg: Config, report: dict) -> None:
+    """Rung 2/3 of the cost ladder: "inside the zone?" — a verdict, never a coordinate."""
+    # FRESHNESS rung: loose → accept a cached answer (cheap); strict → force a fresh fix (expensive).
+    # This is what sets the cost on the network, not "verdict or coordinate".
+    strict = act.freshness == "strict"
+    max_age = cfg.budget.strict_max_age_s if strict else cfg.budget.loose_max_age_s
+    data, source, ms = _call(nac, "location_verify", w.phone, site.lat, site.lng, site.radius_m, max_age)
+    res = (data or {}).get("verificationResult")
+    if res is not None and not _trusted(source):
+        # A fallback answer CANNOT drop the worker from the queue — otherwise a crashing API
+        # silently produces a "safe" verdict. Counted as not verified; staleness keeps rising.
+        site.log(now, "untrusted_signal", f"Answer from an untrusted source ({source}) — counted as not verified",
+                 worker=w, source=source)
+        res = None
+    w.queries_used, site.queries_total = w.queries_used + 1, site.queries_total + 1
+    site.verifications_total += 1
+    if res is not None:
+        # UNKNOWN and PARTIAL are answers (to protect the budget we do not ask again right away) but
+        # they ARE NOT TRUSTWORTHY SIGNALS: `last_signal_at` is not updated → staleness keeps
+        # rising, the worker moves up in the ranking.
+        w.last_verified_at = now
+        if res not in ("UNKNOWN", "PARTIAL"):
+            w.last_signal_at = now
+    if res == "TRUE":
+        # `moving_out` is NOT TOUCHED: trajectory is a site signal (turnstile exit, shift supervisor
+        # record) and cannot be derived from Location Verification. It used to be derived from PARTIAL;
+        # the operator's correction removed that basis — instead of keeping a fake signal, we removed it.
+        w.verified_inside, w.state = True, "confirming"
+    elif res == "FALSE":
+        w.verified_inside, w.inside, w.cleared, w.state = False, False, True, "passive_watch"
+        site.log(now, "worker_cleared", "Location Verification: outside the zone — dropped out of the queue", worker=w, source=source)
+    elif res == "PARTIAL":
+        # PARTIAL is a GEOMETRIC statement: the uncertainty region INTERSECTS the area but is not
+        # contained in it. It has NOTHING to do with movement. (It used to be interpreted here as
+        # "moving toward the exit" — that was wrong; corrected by the operator.) If the positioning
+        # uncertainty is on the same order as the site radius, PARTIAL becomes the dominant answer,
+        # so it counts as "insufficient evidence": not verified, and the UNKNOWN IS NOT SAFE.
+        site.partial_verifications += 1
+        w.verified_inside, w.state = None, "confirming"
+        site.log(now, "insufficient_evidence",
+                 "PARTIAL — the uncertainty region intersects the zone without being contained in it. "
+                 "Geometric, not a movement signal: counted as not verified, staleness keeps rising",
+                 worker=w, source=source)
+    else:  # UNKNOWN / error → count as not verified, try again on the next sweep
+        w.verified_inside, w.state = None, "confirming"
+    report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "location-verification",
+                            "pool": act.pool, "result": res, "source": source, "latency_ms": ms,
+                            "reason": act.reason, "freshness": act.freshness, "max_age_s": max_age,
+                            "last_location_time": (data or {}).get("lastLocationTime")})
+    rung = "rung 3, fresh fix demanded" if strict else "rung 2, cached answer accepted"
+    shown = (f"NO ANSWER — operator API error ({source}); counted as UNKNOWN, not as safe" if res is None
+             else f"{res} ({rung}; coordinates NOT requested)")
+    site.log(now, "location_verify", f"Inside the zone? → {shown}",
+             worker=w, source=source, explain=act.explain,
+             extra={"pool": act.pool, "freshness": act.freshness, "max_age_s": max_age,
+                    "last_location_time": (data or {}).get("lastLocationTime")})
+
+
+def _run_reachability(site: SiteRuntime, now: datetime, w: WorkerRuntime, act, nac, cfg: Config, report: dict) -> bool:
+    """Is a worker verified inside still reachable? Returns True when the device went silent."""
+    data, source, ms = _call(nac, "reachability", w.phone)
+    reachable = (data or {}).get("reachable")
+    if reachable is not None and not _trusted(source):
+        site.log(now, "untrusted_signal", f"Answer from an untrusted source ({source}) — reachability counted as unknown",
+                 worker=w, source=source)
+        reachable = None
+    w.reachable, w.last_reachability_at = reachable, now
+    w.queries_used, site.queries_total = w.queries_used + 1, site.queries_total + 1
+    if reachable:
+        w.last_signal_at = now
+        w.state = "confirming"
+    report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "device-reachability-status",
+                            "pool": act.pool, "result": reachable, "source": source, "latency_ms": ms, "reason": act.reason})
+    shown_r = ("yes" if reachable else "NO — the device went silent" if reachable is False
+               else f"NO ANSWER — operator API error ({source}); counted as unknown")
+    site.log(now, "reachability", f"Is the device reachable? → {shown_r}", worker=w, source=source, explain=act.explain)
+    return not reachable
+
+
+def _run_location_retrieve(site: SiteRuntime, now: datetime, w: WorkerRuntime, act, nac, cfg: Config, report: dict) -> None:
+    """The one-time, privacy-gated coordinate for the medic after an escalation."""
+    data, source, ms = _call(nac, "location_retrieve", w.phone, cfg.budget.strict_max_age_s)
+    area = (data or {}).get("area") or {}
+    c = area.get("center") or {}
+    w.queries_used, site.queries_total = w.queries_used + 1, site.queries_total + 1
+    # TWO CRACKS IN THE GATE (privacy audit):
+    #  (a) if the call did not return a `center`, the flag was not set → as long as the worker stayed
+    #      `escalated`, a coordinate was requested again ON EVERY SWEEP. Now an attempt also counts once.
+    #  (b) `_trusted()` had not been applied to this branch → a fabricated coordinate from a fallback
+    #      could have been stored as if real and shown to the medic.
+    w.location_retrieved = True          # (a) the attempt was made; the one-time gate is closed
+    if c and _trusted(source):
+        # COARSENING AT THE SOURCE: the field name `last_location_masked` implied it was masked,
+        # but the code did not round; the API was publishing full-precision coordinates.
+        # The 3 decimals (~110 m) written to the ledger were right — the same measure is applied here.
+        w.last_location = {"lat": round(float(c.get("latitude", 0)), 3),
+                           "lng": round(float(c.get("longitude", 0)), 3),
+                           "radius_m": area.get("radius"), "coarsened_decimals": 3,
+                           "at": _iso(now), "purpose": "where the medic has to run (one time only)"}
+    elif c:
+        site.log(now, "untrusted_signal",
+                 f"A coordinate arrived from an untrusted source ({source}) — NOT stored and NOT shown "
+                 f"to the medic. A fabricated position is worse than none",
+                 worker=w, source=source)
+    report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "location-retrieval",
+                            "pool": act.pool, "result": bool(c), "source": source, "latency_ms": ms, "reason": act.reason})
+    # If no center came back, (0, 0) is NOT WRITTEN: a fake coordinate both misleads the medic and
+    # inflates the `coordinates_stored` counter.
+    stored = w.last_location if (c and _trusted(source)) else None
+    site.log(now, "location_retrieve",
+             "A ONE-TIME coordinate after escalation — for the medic" if stored else
+             "A ONE-TIME coordinate was requested after escalation — none usable came back; the gate is closed",
+             worker=w, source=source, explain=act.explain,
+             extra={"coarse": {"lat": stored["lat"], "lng": stored["lng"]} if stored else None})
+
+
+def _execute_plan(site: SiteRuntime, now: datetime, plan: list, nac, cfg: Config, report: dict) -> list[WorkerRuntime]:
+    """Move 3: run the plan in order. Returns the workers whose device went silent."""
     unreachable_now: list[WorkerRuntime] = []
     for act in plan:
         w = site.workers.get(act.worker.get("worker_id"))
         if w is None:
             continue
         if act.api == "location_verify":
-            # FRESHNESS rung: loose → accept a cached answer (cheap); strict → force a fresh fix (expensive).
-            # This is what sets the cost on the network, not "verdict or coordinate".
-            strict = act.freshness == "strict"
-            max_age = cfg.budget.strict_max_age_s if strict else cfg.budget.loose_max_age_s
-            data, source, ms = _call(nac, "location_verify", w.phone, site.lat, site.lng, site.radius_m, max_age)
-            res = (data or {}).get("verificationResult")
-            if res is not None and not _trusted(source):
-                # A fallback answer CANNOT drop the worker from the queue — otherwise a crashing API
-                # silently produces a "safe" verdict. Counted as not verified; staleness keeps rising.
-                site.log(now, "untrusted_signal", f"Answer from an untrusted source ({source}) — counted as not verified",
-                         worker=w, source=source)
-                res = None
-            w.queries_used, site.queries_total = w.queries_used + 1, site.queries_total + 1
-            site.verifications_total += 1
-            if res is not None:
-                # UNKNOWN and PARTIAL are answers (to protect the budget we do not ask again right away) but
-                # they ARE NOT TRUSTWORTHY SIGNALS: `last_signal_at` is not updated → staleness keeps
-                # rising, the worker moves up in the ranking.
-                w.last_verified_at = now
-                if res not in ("UNKNOWN", "PARTIAL"):
-                    w.last_signal_at = now
-            if res == "TRUE":
-                # `moving_out` is NOT TOUCHED: trajectory is a site signal (turnstile exit, shift supervisor
-                # record) and cannot be derived from Location Verification. It used to be derived from PARTIAL;
-                # the operator's correction removed that basis — instead of keeping a fake signal, we removed it.
-                w.verified_inside, w.state = True, "confirming"
-            elif res == "FALSE":
-                w.verified_inside, w.inside, w.cleared, w.state = False, False, True, "passive_watch"
-                site.log(now, "worker_cleared", "Location Verification: outside the zone — dropped out of the queue", worker=w, source=source)
-            elif res == "PARTIAL":
-                # PARTIAL is a GEOMETRIC statement: the uncertainty region INTERSECTS the area but is not
-                # contained in it. It has NOTHING to do with movement. (It used to be interpreted here as
-                # "moving toward the exit" — that was wrong; corrected by the operator.) If the positioning
-                # uncertainty is on the same order as the site radius, PARTIAL becomes the dominant answer,
-                # so it counts as "insufficient evidence": not verified, and the UNKNOWN IS NOT SAFE.
-                site.partial_verifications += 1
-                w.verified_inside, w.state = None, "confirming"
-                site.log(now, "insufficient_evidence",
-                         "PARTIAL — the uncertainty region intersects the zone without being contained in it. "
-                         "Geometric, not a movement signal: counted as not verified, staleness keeps rising",
-                         worker=w, source=source)
-            else:  # UNKNOWN / error → count as not verified, try again on the next sweep
-                w.verified_inside, w.state = None, "confirming"
-            report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "location-verification",
-                                    "pool": act.pool, "result": res, "source": source, "latency_ms": ms,
-                                    "reason": act.reason, "freshness": act.freshness, "max_age_s": max_age,
-                                    "last_location_time": (data or {}).get("lastLocationTime")})
-            rung = "rung 3, fresh fix demanded" if strict else "rung 2, cached answer accepted"
-            shown = (f"NO ANSWER — operator API error ({source}); counted as UNKNOWN, not as safe" if res is None
-                     else f"{res} ({rung}; coordinates NOT requested)")
-            site.log(now, "location_verify", f"Inside the zone? → {shown}",
-                     worker=w, source=source, explain=act.explain,
-                     extra={"pool": act.pool, "freshness": act.freshness, "max_age_s": max_age,
-                            "last_location_time": (data or {}).get("lastLocationTime")})
+            _run_location_verify(site, now, w, act, nac, cfg, report)
         elif act.api == "reachability":
-            data, source, ms = _call(nac, "reachability", w.phone)
-            reachable = (data or {}).get("reachable")
-            if reachable is not None and not _trusted(source):
-                site.log(now, "untrusted_signal", f"Answer from an untrusted source ({source}) — reachability counted as unknown",
-                         worker=w, source=source)
-                reachable = None
-            w.reachable, w.last_reachability_at = reachable, now
-            w.queries_used, site.queries_total = w.queries_used + 1, site.queries_total + 1
-            if reachable:
-                w.last_signal_at = now
-                w.state = "confirming"
-            else:
+            if _run_reachability(site, now, w, act, nac, cfg, report):
                 unreachable_now.append(w)
-            report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "device-reachability-status",
-                                    "pool": act.pool, "result": reachable, "source": source, "latency_ms": ms, "reason": act.reason})
-            shown_r = ("yes" if reachable else "NO — the device went silent" if reachable is False
-                       else f"NO ANSWER — operator API error ({source}); counted as unknown")
-            site.log(now, "reachability", f"Is the device reachable? → {shown_r}", worker=w, source=source, explain=act.explain)
         elif act.api == "location_retrieve":
-            data, source, ms = _call(nac, "location_retrieve", w.phone, cfg.budget.strict_max_age_s)
-            area = (data or {}).get("area") or {}
-            c = area.get("center") or {}
-            w.queries_used, site.queries_total = w.queries_used + 1, site.queries_total + 1
-            # TWO CRACKS IN THE GATE (privacy audit):
-            #  (a) if the call did not return a `center`, the flag was not set → as long as the worker stayed
-            #      `escalated`, a coordinate was requested again ON EVERY SWEEP. Now an attempt also counts once.
-            #  (b) `_trusted()` had not been applied to this branch → a fabricated coordinate from a fallback
-            #      could have been stored as if real and shown to the medic.
-            w.location_retrieved = True          # (a) the attempt was made; the one-time gate is closed
-            if c and _trusted(source):
-                # COARSENING AT THE SOURCE: the field name `last_location_masked` implied it was masked,
-                # but the code did not round; the API was publishing full-precision coordinates.
-                # The 3 decimals (~110 m) written to the ledger were right — the same measure is applied here.
-                w.last_location = {"lat": round(float(c.get("latitude", 0)), 3),
-                                   "lng": round(float(c.get("longitude", 0)), 3),
-                                   "radius_m": area.get("radius"), "coarsened_decimals": 3,
-                                   "at": _iso(now), "purpose": "where the medic has to run (one time only)"}
-            elif c:
-                site.log(now, "untrusted_signal",
-                         f"A coordinate arrived from an untrusted source ({source}) — NOT stored and NOT shown "
-                         f"to the medic. A fabricated position is worse than none",
-                         worker=w, source=source)
-            report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "location-retrieval",
-                                    "pool": act.pool, "result": bool(c), "source": source, "latency_ms": ms, "reason": act.reason})
-            # If no center came back, (0, 0) is NOT WRITTEN: a fake coordinate both misleads the medic and
-            # inflates the `coordinates_stored` counter.
-            stored = w.last_location if (c and _trusted(source)) else None
-            site.log(now, "location_retrieve",
-                     "A ONE-TIME coordinate after escalation — for the medic" if stored else
-                     "A ONE-TIME coordinate was requested after escalation — none usable came back; the gate is closed",
-                     worker=w, source=source, explain=act.explain,
-                     extra={"coarse": {"lat": stored["lat"], "lng": stored["lng"]} if stored else None})
-    # ---- 4) §9: collapse, network, battery or exit?
+            _run_location_retrieve(site, now, w, act, nac, cfg, report)
+    return unreachable_now
+
+
+def _request_qod(site: SiteRuntime, now: datetime, w: WorkerRuntime, nac, cfg: Config, report: dict) -> None:
+    """Guaranteed bandwidth for the medic ↔ physician video call."""
+    data, source, ms = _call(nac, "qod_create", w.phone, cfg.qod_app_server_ipv4, cfg.qod_profile, 900)
+    # A QoD session request is also a network call: if it is not counted, the card arithmetic
+    # does not add up (the jury added 83 + 7 and saw 89). Audit A / Y1.
+    site.queries_total += 1
+    sid = (data or {}).get("sessionId")
+    if sid:
+        site.qod_sessions = {**site.qod_sessions, w.worker_id: {
+            "session_id": sid, "qos_profile": cfg.qod_profile,
+            "status": (data or {}).get("qosStatus"), "source": source, "at": _iso(now)}}
+        site.state = "emergency"
+        site.log(now, "qod_session", f"Guaranteed bandwidth opened ({cfg.qod_profile}) — medic video assessment",
+                 worker=w, source=source, extra={"session_id": sid})
+    report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "quality-on-demand",
+                            "pool": "emergency", "result": sid, "source": source, "latency_ms": ms,
+                            "reason": "medic ↔ physician video assessment"})
+
+
+def _classify_silent(site: SiteRuntime, now: datetime, unreachable_now: list[WorkerRuntime], nac, cfg: Config, report: dict) -> None:
+    """§9: for every silent device — collapse, network event, dead battery or left the site?"""
     for w in unreachable_now:
         zone_peers = [x for x in site.workers.values() if x.micro_zone == w.micro_zone and x.worker_id != w.worker_id]
         n_unreach = sum(1 for x in zone_peers if x.reachable is False)
@@ -802,23 +820,8 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
             site.state = "distress"
         elif w.state != "passive_watch":
             w.state = "alert"
-        # guaranteed bandwidth: medic ↔ physician video call
         if "request_qod" in actions:
-            data, source, ms = _call(nac, "qod_create", w.phone, cfg.qod_app_server_ipv4, cfg.qod_profile, 900)
-            # A QoD session request is also a network call: if it is not counted, the card arithmetic
-            # does not add up (the jury added 83 + 7 and saw 89). Audit A / Y1.
-            site.queries_total += 1
-            sid = (data or {}).get("sessionId")
-            if sid:
-                site.qod_sessions = {**site.qod_sessions, w.worker_id: {
-                    "session_id": sid, "qos_profile": cfg.qod_profile,
-                    "status": (data or {}).get("qosStatus"), "source": source, "at": _iso(now)}}
-                site.state = "emergency"
-                site.log(now, "qod_session", f"Guaranteed bandwidth opened ({cfg.qod_profile}) — medic video assessment",
-                         worker=w, source=source, extra={"session_id": sid})
-            report["calls"].append({"worker_id": w.worker_id, "masked": w.masked, "api": "quality-on-demand",
-                                    "pool": "emergency", "result": sid, "source": source, "latency_ms": ms,
-                                    "reason": "medic ↔ physician video assessment"})
+            _request_qod(site, now, w, nac, cfg, report)
         if "provision_slice" in actions:
             # MOCK: Network Slicing is a separate product in NaC; in the prototype it is represented
             # by QoD + congestion evidence.
@@ -840,7 +843,9 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
             report["escalations"].append({"worker_id": w.worker_id, "masked": w.masked, "name": w.name,
                                           "confidence": res["confidence"], "actions": actions, "score": w.score})
 
-    # ---- 4b) PROLONGED EXPOSURE: silence is not the only signal.
+
+def _prolonged_exposure(site: SiteRuntime, now: datetime, cfg: Config, report: dict) -> None:
+    """4b: escalate workers kept inside a breached zone too long, even if their phone still answers."""
     # All of the classification above relies on the device GOING SILENT. But a worker with the phone in
     # their pocket, fully charged and reachable, can also collapse — the network never sees it, no
     # silence signal ever arises. And the law already orders work to STOP.
@@ -876,6 +881,9 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
                                       "confidence": 1.0, "actions": list(esc.actions), "score": w.score,
                                       "trigger": "prolonged_exposure"})
 
+
+def _finish_report(site: SiteRuntime, now: datetime, cfg: Config, report: dict, ledger_from: int) -> dict:
+    """Close the sweep: counters, the ledger slice, pruning, budget breakdown, final state."""
     site.last_sweep_at, site.sweeps = now, site.sweeps + 1
     # The report slice is taken BEFORE PRUNING: pruning deletes from the front and shifts the `ledger_from` index.
     report["ledger_added"] = site.ledger[ledger_from:]
@@ -896,6 +904,53 @@ def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, 
     report["note"] = ("Move 2/3 — the budget was spent in rank order; a coordinate was taken only after escalation, once."
                       if report["calls"] else "There is a breach but no new worker to query (all of them freshly verified).")
     return report
+
+
+def step(site: SiteRuntime, now: datetime, nac=None, cfg: Config | None = None, wbgt_c: float | None = None) -> dict:
+    """One sweep: site state → scoring → plan → calls → classification → escalation → evidence ledger."""
+    cfg = cfg or site.cfg
+    now = _dt(now)
+    # Align the local mock's clock with simulated time. If the fixture writes the real wall clock, the
+    # timestamps it produces come "from the future" in a simulated scenario; the freshness check becomes meaningless.
+    # In live mode `fx` only sits there as a fallback, so touching it is harmless.
+    _fx = getattr(getattr(nac, "nac", None), "fx", None) or getattr(nac, "fx", None)
+    if _fx is not None and hasattr(_fx, "set_clock"):
+        _fx.set_clock(now)
+    if wbgt_c is not None:
+        site.wbgt_c, site.wbgt_at = wbgt_c, now
+
+    # ---- 1) site state (WBGT threshold OR summer-ban hours)
+    st = R.site_state(site.wbgt_c, now, cfg.jurisdiction, cfg, site.wbgt_at)
+    site.breached, site.severity, site.level = st["breached"], st["severity"], st["level"]
+    report = _new_report(site, now, st, cfg)
+
+    # ---- Move 1: no breach, no query authority
+    if not st["breached"]:
+        return _quiet_sweep(site, now, st, cfg, report)
+
+    ledger_from = len(site.ledger)
+    breach_is_new = site.breach_started_at is None
+    if breach_is_new:
+        site.breach_started_at = now
+        site.log(now, "breach_started", st["reason"], source="rules", explain=st["explain"],
+                 extra={"wbgt_c": site.wbgt_c, "level": st["level"]})
+    if site.state == "passive_watch":
+        site.state = "alert"
+
+    # ---- Move 1b: reconciliation with the shift roster. At the start of every breach, then periodically.
+    reconciled = _reconcile_roster(site, now, cfg, force=breach_is_new)
+    report["reconciled"] = reconciled
+
+    plan = _score_and_plan(site, now, st, cfg, report)
+    # ---- 3) Move 3: execute the plan in order (cost ladder)
+    unreachable_now = _execute_plan(site, now, plan, nac, cfg, report)
+    # ---- 4) §9: collapse, network, battery or exit?
+    _classify_silent(site, now, unreachable_now, nac, cfg, report)
+    # ---- 4b) prolonged exposure: silence is not the only signal
+    _prolonged_exposure(site, now, cfg, report)
+    return _finish_report(site, now, cfg, report, ledger_from)
+
+
 
 
 def new_worker(worker_id: str, phone: str, **kw) -> WorkerRuntime:
