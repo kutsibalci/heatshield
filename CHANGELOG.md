@@ -48,6 +48,17 @@ The six demo scenarios still produce the same calls, verdicts and escalations as
   - They share one `.env` loader.
   - Live tools require an explicit `--live` (`verify_live.py`: `--mode` is required).
 
+### Code organisation and language (#5)
+- **English throughout.** Every code comment and docstring moved from Turkish to English, and so did the
+  user-facing messages. Checked by `tools/check_code_unchanged.py`: the syntax tree was identical apart
+  from docstrings.
+- **`apps/api/main.py` split into modules.** It was 1,170 lines. Now `main.py` holds the app and core routes,
+  alongside `security.py`, `runtime.py`, `models.py`, `scheduler.py` and `demo.py`.
+- **`policy.step()` in named stages.** It was one 364-line function; it now calls the stages in order.
+  The full demo output (7 MB of JSON) is byte-identical before and after.
+- **One timestamp parser** (`rules/timeutil.py`) instead of five copies. A geofence event with an empty
+  `time` is now applied at the current time instead of returning 500.
+
 ## v0.1-hackathon — 2026-09-13
 
 The prototype submitted to the GSMA MENA Ignite Hackathon 2026 and presented at Demo Day on
