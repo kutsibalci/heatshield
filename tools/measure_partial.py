@@ -28,7 +28,7 @@ OUT = evidence_file("partial-scan")
 
 def load_env() -> None:
     if _load_env() is None:
-        print(".env yok — canlı mod için gerekli.")
+        print("No .env found — live mode needs one.")
         sys.exit(1)
 
 
@@ -37,7 +37,7 @@ def main() -> None:
     load_env()
     phone = os.environ.get("NAC_PROBE_PHONE", "").strip()
     if not phone:
-        print("NAC_PROBE_PHONE tanimli degil.")
+        print("NAC_PROBE_PHONE is not set.")
         sys.exit(1)
 
     os.environ["NAC_MODE"] = "live"
@@ -50,13 +50,13 @@ def main() -> None:
     ctr = area.get("center") or {}
     lat, lng = ctr.get("latitude"), ctr.get("longitude")
     reported = area.get("radius")
-    print(f"Location Retrieval  -> merkez ({lat}, {lng})  platformun bildirdigi yaricap: {reported} m")
+    print(f"Location Retrieval  -> centre ({lat}, {lng})  platform-reported radius: {reported} m")
     print(f"lastLocationTime    -> {(r.data or {}).get('lastLocationTime')}")
     if lat is None:
-        print("Koordinat donmedi, olcum yapilamaz.")
+        print("No coordinate returned; nothing to measure.")
         sys.exit(1)
 
-    print("\nAyni merkez, buyuyen yaricap:")
+    print("\nSame centre, growing radius:")
     rows = []
     for radius in RADII:
         try:
@@ -76,17 +76,17 @@ def main() -> None:
             strict_verdict, strict_ms = None, 0
         rows.append({"radius_m": radius, "loose": verdict, "loose_ms": ms,
                      "strict": strict_verdict, "strict_ms": strict_ms, "error": err})
-        print(f"  r={radius:>5} m  ->  gevsek: {str(verdict or err):<10} {ms:>4} ms   |   siki: {str(strict_verdict):<10} {strict_ms:>4} ms")
+        print(f"  r={radius:>5} m  ->  loose: {str(verdict or err):<10} {ms:>4} ms   |   strict: {str(strict_verdict):<10} {strict_ms:>4} ms")
 
     firsts = [r_["radius_m"] for r_ in rows if r_["loose"] == "TRUE"]
     partials = [r_["radius_m"] for r_ in rows if r_["loose"] == "PARTIAL"]
-    print("\nOZET")
-    print(f"  PARTIAL donen yaricaplar : {partials or '-'}")
-    print(f"  Ilk TRUE                 : {firsts[0] if firsts else 'hicbiri'} m")
-    print(f"  Platformun bildirdigi    : {reported} m")
+    print("\nSUMMARY")
+    print(f"  radii returning PARTIAL : {partials or '-'}")
+    print(f"  first TRUE               : {firsts[0] if firsts else 'none'} m")
+    print(f"  platform-reported        : {reported} m")
     if firsts:
-        print(f"  -> Belirsizlik ~{firsts[0]} m mertebesinde. Saha yaricapi 500 m ise "
-              f"{'PARTIAL baskin olur' if firsts[0] > 500 else 'TRUE/FALSE anlamli kalir'}.")
+        print(f"  -> Uncertainty is of the order of {firsts[0]} m. With a 500 m site radius "
+              f"{'PARTIAL dominates' if firsts[0] > 500 else 'TRUE/FALSE stay meaningful'}.")
 
     OUT.write_text(json.dumps({
         "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -97,7 +97,7 @@ def main() -> None:
         "first_true_radius_m": firsts[0] if firsts else None,
         "partial_radii_m": partials,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nkayit: {OUT}")
+    print(f"\nsaved: {OUT}")
 
 
 if __name__ == "__main__":

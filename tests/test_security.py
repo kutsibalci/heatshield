@@ -78,7 +78,7 @@ def test_demo_endpoints_are_off_unless_demo_mode_is_on(anon, monkeypatch):
     monkeypatch.delenv("HS_DEMO_MODE", raising=False)
     sid = _site(anon)
     assert anon.post("/v1/demo/no-breach").status_code == 404
-    assert sid in m.store.sites, "kapalı demo ucu mağazayı silmemeli"
+    assert sid in m.store.sites, "a disabled demo endpoint must not wipe the store"
     monkeypatch.setenv("HS_DEMO_MODE", "1")
     assert anon.post("/v1/demo/no-breach").status_code == 200
 

@@ -82,9 +82,9 @@ class Sink(BaseHTTPRequestHandler):
 
 def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8020
-    print(f"Sink dinliyor: http://127.0.0.1:{port}  (her yol, her metod → 204)")
-    print(f"Kayit dosyasi: {LOG}")
-    print("Simdi ayri bir terminalde:  ngrok http", port)
+    print(f"Sink listening: http://127.0.0.1:{port}  (any path, any method → 204)")
+    print(f"Log file: {LOG}")
+    print("Now, in a separate terminal:  ngrok http", port)
     ThreadingHTTPServer(("127.0.0.1", port), Sink).serve_forever()
 
 

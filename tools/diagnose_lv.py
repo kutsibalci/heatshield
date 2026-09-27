@@ -24,7 +24,7 @@ OUT = evidence_file("lv-diagnosis")
 def main() -> None:
     require_live_flag("Location Verification diagnosis against the live Nokia sandbox.")
     if load_env() is None:
-        print(".env yok — canlı mod için gerekli.")
+        print("No .env found — live mode needs one.")
         sys.exit(1)
     os.environ["NAC_MODE"] = "live"
 
@@ -33,10 +33,10 @@ def main() -> None:
     phone = normalize_phone(raw_phone)
 
     # --- HYPOTHESIS 2 first: do the two calls use the same device AT THE BYTE LEVEL?
-    print("HIPOTEZ 2 — cihaz tanimlayicisi")
-    print(f"  .env ham deger      : {raw_phone[:6]}***{raw_phone[-4:]}  (uzunluk {len(raw_phone)})")
-    print(f"  normalize edilmis   : {phone[:6]}***{phone[-4:]}  (uzunluk {len(phone)})")
-    print("  iki cagri ayni mi   : EVET — her ikisi de device.phoneNumber ile ayni normalize degeri gonderiyor")
+    print("HYPOTHESIS 2 — device identifier")
+    print(f"  raw .env value      : {raw_phone[:6]}***{raw_phone[-4:]}  (length {len(raw_phone)})")
+    print(f"  normalised          : {phone[:6]}***{phone[-4:]}  (length {len(phone)})")
+    print("  both calls identical: YES — both send the same normalised value in device.phoneNumber")
 
     r = c.location_retrieve(phone, 3600)
     area = (r.data or {}).get("area") or {}
@@ -46,13 +46,13 @@ def main() -> None:
     print(f"\n  Retrieval -> lat={lat}  lng={lng}  radius={area.get('radius')}  ts={ret_ts}")
 
     # --- HYPOTHESIS 1: coordinate order / sign
-    print("\nHIPOTEZ 1 — koordinat sirasi ve isareti")
+    print("\nHYPOTHESIS 1 — coordinate order and sign")
     cases = [
-        ("dogru sira (lat, lng)", lat, lng),
-        ("TERS sira (lng, lat)", lng, lat),
-        ("enlem isareti ters", -lat, lng),
-        ("boylam isareti ters", lat, -lng),
-        ("her iki isaret ters", -lat, -lng),
+        ("correct order (lat, lng)", lat, lng),
+        ("SWAPPED order (lng, lat)", lng, lat),
+        ("latitude sign flipped", -lat, lng),
+        ("longitude sign flipped", lat, -lng),
+        ("both signs flipped", -lat, -lng),
     ]
     rows = []
     for label, la, ln in cases:
@@ -67,7 +67,7 @@ def main() -> None:
         print(f"  {label:<24} -> {row.get('result') or row.get('error')}")
 
     # --- Hint for HYPOTHESIS 3: does the freshness request change the timestamp?
-    print("\nMENTOR DOGRULAMASI — siki maxAge taze fix uretiyor mu?")
+    print("\nMENTOR CHECK — does a strict maxAge produce a fresh fix?")
     freshness = []
     for max_age in (3600, 60, 10):
         try:
@@ -77,18 +77,18 @@ def main() -> None:
             print(f"  maxAge={max_age:>5} s -> ts={ts}  ({res.latency_ms} ms)")
         except NacError as e:
             freshness.append({"max_age_s": max_age, "error": f"{e.kind}:{e.status}"})
-            print(f"  maxAge={max_age:>5} s -> HATA {e.kind}:{e.status}")
+            print(f"  maxAge={max_age:>5} s -> ERROR {e.kind}:{e.status}")
 
     verdicts = {r_.get("result") for r_ in rows}
-    swapped_works = any(r_["case"].startswith("TERS") and r_.get("result") == "TRUE" for r_ in rows)
-    print("\nSONUC")
+    swapped_works = any(r_["case"].startswith("SWAPPED") and r_.get("result") == "TRUE" for r_ in rows)
+    print("\nRESULT")
     if swapped_works:
-        print("  -> KOORDINAT SIRASI: ters cevirince TRUE donuyor. Sandbox lat/lng'yi ters yorumluyor.")
+        print("  -> COORDINATE ORDER: swapping returns TRUE. The sandbox reads lat/lng the other way round.")
     elif verdicts == {"FALSE"}:
-        print("  -> Hipotez 1 ve 2 ELENDI. Kalan aciklama: sandbox'ta iki API ayni veri kaynagina")
-        print("     bagli degil (Hipotez 3) — bu bizim kontrolumuzde degil, Nokia'ya sorulacak.")
+        print("  -> Hypotheses 1 and 2 RULED OUT. Remaining explanation: in the sandbox the two APIs are not")
+        print("     backed by the same data source (hypothesis 3) — outside our control; a question for Nokia.")
     else:
-        print(f"  -> Karisik sonuc: {verdicts}")
+        print(f"  -> Mixed result: {verdicts}")
 
     OUT.write_text(json.dumps({
         "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -101,7 +101,7 @@ def main() -> None:
                        "hypotheses 1 and 2 eliminated; remaining explanation is that the two APIs "
                        "are not backed by the same data source in the sandbox - a question for Nokia"),
     }, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nkayit: {OUT}")
+    print(f"\nsaved: {OUT}")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ class NacError(Exception):
 
 class NacTimeout(NacError):
     def __init__(self, api: str, timeout_s: float):
-        super().__init__("timeout", api, f"{timeout_s}s aşıldı", retryable=True)
+        super().__init__("timeout", api, f"exceeded {timeout_s}s", retryable=True)
 
 
 class NacCircuitOpen(NacError):

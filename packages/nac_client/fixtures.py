@@ -146,7 +146,7 @@ class FixtureBackend:
             raise NacTimeout(api, 0)
         if isinstance(fail, int):
             from .errors import error_from_status
-            raise error_from_status(api, fail, "fixture: enjekte edilmiş hata")
+            raise error_from_status(api, fail, "fixture: injected fault")
 
     # ---- CAMARA responses -------------------------------------------------
     def number_recycling(self, phone: str, specified_date: str) -> dict:
@@ -337,13 +337,13 @@ class FixtureBackend:
     def get_subscription(self, sid: str) -> dict:
         sub = self.subscriptions.get(sid)
         if not sub:
-            raise NacError("not_found", "subscriptions", "abonelik yok", 404)
+            raise NacError("not_found", "subscriptions", "no such subscription", 404)
         return _public(sub)
 
     def delete_subscription(self, sid: str) -> dict:
         sub = self.subscriptions.pop(sid, None)
         if not sub:
-            raise NacError("not_found", "subscriptions", "abonelik yok", 404)
+            raise NacError("not_found", "subscriptions", "no such subscription", 404)
         return {"id": sid}
 
     def list_subscriptions(self, kind: str | None = None) -> list[dict]:
@@ -368,13 +368,13 @@ class FixtureBackend:
     def qod_get(self, sid: str) -> dict:
         s = self.qod_sessions.get(sid)
         if not s:
-            raise NacError("not_found", "qod", "oturum yok", 404)
+            raise NacError("not_found", "qod", "no such session", 404)
         return s
 
     def qod_delete(self, sid: str) -> dict:
         s = self.qod_sessions.pop(sid, None)
         if not s:
-            raise NacError("not_found", "qod", "oturum yok", 404)
+            raise NacError("not_found", "qod", "no such session", 404)
         return s
 
     def qod_list(self, phone: str) -> list[dict]:

@@ -22,7 +22,7 @@ def normalize_phone(phone: str) -> str:
     if p and not p.startswith("+"):
         p = "+" + p
     if not _E164.match(p):
-        raise ValueError("geçersiz telefon numarası biçimi")
+        raise ValueError("invalid phone number format")
     return p
 
 

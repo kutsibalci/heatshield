@@ -54,10 +54,10 @@ def main() -> None:
     P.reset_planner()
     planner = get_planner()
     if not isinstance(planner, (LLMPlanner, ChainPlanner)):
-        print("Canli planlayici DEVREDE DEGIL. .env icinde GEMINI_API_KEY (ya da GROQ_API_KEY)")
-        print("ve HS_PLANNER=auto olmali. Su anki planlayici:", type(planner).__name__)
+        print("The live planner is NOT active. .env needs GEMINI_API_KEY (or GROQ_API_KEY)")
+        print("and HS_PLANNER=auto. Current planner:", type(planner).__name__)
         sys.exit(1)
-    print(f"Planlayici: {planner.name}  (saglayici: {planner.provider})\n")
+    print(f"Planner: {planner.name}  (provider: {planner.provider})\n")
 
     fx = FixtureBackend.from_json(ROOT / "fixtures" / "profiles.json")
     cfg = Config()
@@ -96,13 +96,13 @@ def main() -> None:
             "model_reasons": pl.get("why"),
         })
         used = pl.get("used")
-        head = "KABUL" if used else f"RED ({pl.get('violation') or pl.get('reason')})"
-        print(f"Tarama {k}: {head}   gecikme={pl.get('latency_ms')} ms")
+        head = "ACCEPTED" if used else f"REJECTED ({pl.get('violation') or pl.get('reason')})"
+        print(f"Sweep {k}: {head}   latency={pl.get('latency_ms')} ms")
         if pl.get("note"):
-            print(f"  modelin notu : {pl['note']}")
+            print(f"  model note : {pl['note']}")
         if pl.get("order_before") != pl.get("order_after"):
-            print(f"  kurallarin sirasi: {pl.get('order_before')}")
-            print(f"  modelin sirasi   : {pl.get('order_after')}")
+            print(f"  rules order: {pl.get('order_before')}")
+            print(f"  model order: {pl.get('order_after')}")
         for wid, why in list((pl.get("why") or {}).items())[:4]:
             print(f"    {wid}: {why}")
         print()
@@ -116,7 +116,7 @@ def main() -> None:
                  "itself. The prompt carries no raw phone number, no worker name and no coordinate."),
         "sweeps": sweeps,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("kayit:", out)
+    print("saved:", out)
 
 
 if __name__ == "__main__":

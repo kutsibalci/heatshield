@@ -121,7 +121,7 @@ def test_model_failure_falls_back_to_rules_silently(monkeypatch):
 
 
 def test_malformed_json_falls_back_to_rules(monkeypatch):
-    _fake_provider(monkeypatch, "bu JSON degil")
+    _fake_provider(monkeypatch, "this is not JSON")
     p = LA.LLMPlanner("gemini", "test-key")
     assert p.propose(SNAP, PLAN) == PLAN
     assert p.last_verdict()["used"] is False
@@ -130,7 +130,7 @@ def test_malformed_json_falls_back_to_rules(monkeypatch):
 def test_single_action_plan_is_not_sent_to_the_model(monkeypatch):
     """If there is only one thing to order, the model is not called — no pointless latency or cost."""
     def _boom(self, prompt):
-        raise AssertionError("model çağrılmamalıydı")
+        raise AssertionError("the model should not have been called")
     monkeypatch.setattr(LA.LLMPlanner, "_call_gemini", _boom)
     p = LA.LLMPlanner("gemini", "test-key")
     assert p.propose(SNAP, PLAN[:1]) == PLAN[:1]

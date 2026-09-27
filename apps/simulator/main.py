@@ -41,13 +41,13 @@ def _nac_err(_: Request, e: NacError):
 def _phone(body: dict) -> str:
     p = body.get("phoneNumber") or (body.get("device") or {}).get("phoneNumber")
     if not p:
-        raise HTTPException(400, {"code": "INVALID_ARGUMENT", "message": "phoneNumber gerekli"})
+        raise HTTPException(400, {"code": "INVALID_ARGUMENT", "message": "phoneNumber is required"})
     fail = fx.get(p).get("fail")
     if fail == "timeout":
         import time
         time.sleep(30)
     if isinstance(fail, int):
-        raise HTTPException(fail, {"code": "INJECTED", "message": "simülatör: enjekte edilmiş hata"})
+        raise HTTPException(fail, {"code": "INJECTED", "message": "simulator: injected fault"})
     lat = fx.get(p).get("latency_ms", 0)
     if lat:
         import time
@@ -58,7 +58,7 @@ def _phone(body: dict) -> str:
 def _require_bearer(request: Request):
     # Passthrough APIs require Bearer in live; the simulator only warns (mandatory with SIM_STRICT_AUTH=1).
     if os.environ.get("SIM_STRICT_AUTH") == "1" and not request.headers.get("authorization", "").startswith("Bearer "):
-        raise HTTPException(401, {"code": "UNAUTHENTICATED", "message": "Bearer token gerekli"})
+        raise HTTPException(401, {"code": "UNAUTHENTICATED", "message": "a Bearer token is required"})
 
 
 PT = "/passthrough/camara/v1"
@@ -249,7 +249,7 @@ def sim_emit(body: dict = Body(...)):
         s for s in fx.subscriptions.values() if (s.get("config") or {}).get("subscriptionDetail", {}).get("device", {}).get("phoneNumber") == body.get("phone")
     ]
     if not subs:
-        raise HTTPException(404, "abonelik bulunamadı")
+        raise HTTPException(404, "subscription not found")
     # SSRF: anyone opening a subscription can choose the sink; the simulator used to POST to it blindly
     # (e.g. a cloud metadata address). Default: local sinks only. Enabled with SIM_ALLOW_REMOTE_SINKS=1.
     if os.environ.get("SIM_ALLOW_REMOTE_SINKS") != "1":

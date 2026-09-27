@@ -67,7 +67,7 @@ def test_site_and_worker_registration_subscribes_geofence(client):
     assert sub["request"]["config"]["subscriptionDetail"]["area"]["radius"] == 500
     # CAMARA wants ONE event type per subscription → TWO subscriptions per worker (entered + left)
     types = [c["request"]["types"] for c in calls if c["api"] == "geofencing-subscriptions"]
-    assert types == [[GEO_ENTERED], [GEO_LEFT]], "iki tipi tek gövdede göndermek canlıda 400 döndürür"
+    assert types == [[GEO_ENTERED], [GEO_LEFT]], "sending both types in one body returns 400 on the live platform"
     st = client.get("/v1/state").json()
     assert len(st["subscriptions"]) == 2
     # PREVIOUSLY there was `location_history_size == 0` here and that was a FALSE claim: the ledger
@@ -166,7 +166,7 @@ def test_state_and_reset(client):
     assert client.post("/v1/reset", headers=AUTH).status_code == 401
     assert client.post("/v1/reset").json()["ok"] is True
     assert client.get("/v1/state").json()["sites"] == []
-    assert client.get("/v1/sites/yok").status_code == 404
+    assert client.get("/v1/sites/missing").status_code == 404
 
 
 # ------------------------------------------------------------------ demos
@@ -262,7 +262,7 @@ def test_scheduler_sweeps_on_its_own_when_enabled(client, monkeypatch):
         deadline = time.time() + 10
         while time.time() < deadline and m.store.sites[s["site_id"]].sweeps == 0:
             time.sleep(0.05)
-        assert m.store.sites[s["site_id"]].sweeps >= 1, "zamanlayıcı hiç tarama yapmadı"
+        assert m.store.sites[s["site_id"]].sweeps >= 1, "the scheduler never ran a sweep"
         st = c.get("/v1/scheduler").json()
         assert st["sweeps_run"] >= 1 and st["ticks"] >= 1 and st["last_tick_at"] and st["errors"] == 0
         assert any(e["event"] == "sweep_scheduled" for e in c.get(f"/v1/sites/{s['site_id']}/ledger").json()["items"])
@@ -363,7 +363,7 @@ def test_demo_site_is_a_240_worker_lusail_roster(client):
     assert len(ws) == 240                                  # 13 named scenario workers + 227 crowd
     assert d["site"]["area"] == {"lat": 25.3917, "lng": 51.5299, "radius_m": 500}   # the real Lusail Marina
     for w in ws:
-        assert WORKER_FIELDS <= set(w), f"{w['worker_id']} eksik alan: {WORKER_FIELDS - set(w)}"
+        assert WORKER_FIELDS <= set(w), f"{w['worker_id']} missing fields: {WORKER_FIELDS - set(w)}"
         assert w["name"] and w["nationality"] and w["trade"] and w["zone_label"]
         # numbers stay in the RESERVED +99999 range: no real Qatari number is used
         assert w["phone_masked"].startswith("+99999")

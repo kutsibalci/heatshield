@@ -29,7 +29,7 @@ plan = [Action({"worker_id": f"W-{i:03d}", "masked": f"+99999***{i:04d}", "score
 snap = {"wbgt_c": 35.6, "legal_limit_c": 32.1, "workers_in_plan": len(plan), "budget_per_sweep": 20}
 
 p = get_planner()   # if there is a chain we measure the chain — that is what runs in production
-print(f"Model: {p.name}   ornek: {N} cagri\n")
+print(f"Model: {p.name}   sample: {N} calls\n")
 rows = []
 for i in range(1, N + 1):
     t = time.monotonic()
@@ -38,19 +38,19 @@ for i in range(1, N + 1):
     ms = int((time.monotonic() - t) * 1000)
     ok = bool(v.get("used"))
     rows.append({"call": i, "ok": ok, "ms": ms, "reason": None if ok else v.get("reason") or v.get("violation")})
-    print(f"  {i:>2}. {'BASARILI' if ok else 'DUSTU   '}  {ms:>6} ms   {rows[-1]['reason'] or ''}")
+    print(f"  {i:>2}. {'OK    ' if ok else 'FAILED'}  {ms:>6} ms   {rows[-1]['reason'] or ''}")
 
 good = [r["ms"] for r in rows if r["ok"]]
-print(f"\nbasari: {len(good)}/{N}")
+print(f"\nsuccess: {len(good)}/{N}")
 if good:
-    print(f"gecikme  medyan {statistics.median(good):.0f} ms · en dusuk {min(good)} · en yuksek {max(good)}")
+    print(f"latency  median {statistics.median(good):.0f} ms · min {min(good)} · max {max(good)}")
     for budget in (6, 10, 15, 20):
         within = sum(1 for m in good if m <= budget * 1000)
-        print(f"  {budget:>2} sn butcede yetisen: {within}/{N}")
+        print(f"  within a {budget:>2} s budget: {within}/{N}")
 out = evidence_file("planner-reliability")
 out.write_text(json.dumps({"at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                            "model": p.name, "calls": rows,
                            "success_rate": f"{len(good)}/{N}",
                            "median_ms": statistics.median(good) if good else None},
                           ensure_ascii=False, indent=2), encoding="utf-8")
-print("kayit:", out)
+print("saved:", out)

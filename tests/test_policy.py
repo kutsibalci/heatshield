@@ -224,7 +224,7 @@ def test_an_ambiguous_answer_climbs_to_a_fresh_fix(site, nac):
     step(site, NOON, nac, site.cfg, 34.5)                      # W-009 → PARTIAL
     r2 = step(site, NOON + timedelta(minutes=2), nac, site.cfg, 34.5)
     strict = [c for c in r2["calls"] if c["api"] == "location-verification" and c["freshness"] == "strict"]
-    assert strict, "belirsiz cevaptan sonra sıkı tazelikli doğrulama beklenirdi"
+    assert strict, "a strict-freshness verification was expected after an ambiguous answer"
     assert all(c["max_age_s"] == site.cfg.budget.strict_max_age_s for c in strict)
     assert any(c["worker_id"] == "W-009" for c in strict)
 
@@ -456,7 +456,7 @@ def test_a_dead_wbgt_feed_does_not_close_an_open_collapse_case(site, nac):
     assert site.qod_sessions == open_qod or site.qod_sessions           # the open channel remains
     events = {e["event"] for e in r["ledger_added"]}
     assert "wbgt_feed_unusable" in events
-    assert "site_cleared" not in events, "besleme öldü diye 'Breach over' yazılmamalı"
+    assert "site_cleared" not in events, "a dead feed must not write 'Breach over'"
     assert "open cases are NOT closed" in r["note"]
 
 
@@ -493,7 +493,7 @@ def test_a_fallback_answer_never_clears_a_worker(site, monkeypatch):
 
     fx = FixtureBackend.from_json(ROOT / "fixtures" / "profiles.json")
     facade = NacFacade(_failing_client(fx, "location_verify"))
-    assert facade.fallback_enabled is True, "bu test yedek AÇIKKEN anlamlı"
+    assert facade.fallback_enabled is True, "this test is only meaningful with the fallback ON"
 
     populate(site)
     r = step(site, NOON, nac=facade, cfg=site.cfg, wbgt_c=34.5)
@@ -501,10 +501,10 @@ def test_a_fallback_answer_never_clears_a_worker(site, monkeypatch):
     # W-007 is OFF site in the fixture → the fallback returns FALSE. Because it is an untrusted source,
     # this answer must not clear the worker.
     w7 = site.workers["W-007"]
-    assert w7.cleared is False, "yedeğe düşmüş bir cevap işçiyi kuyruktan düşüremez"
+    assert w7.cleared is False, "a fallback answer cannot drop a worker from the queue"
     assert w7.verified_inside is None
     sources = {c["source"] for c in r["calls"]}
-    assert any(s.startswith("fixture-fallback(") for s in sources), "yedek yolu gerçekten çalışmalı"
+    assert any(s.startswith("fixture-fallback(") for s in sources), "the fallback path must actually run"
     assert any(e["event"] == "untrusted_signal" for e in r["ledger_added"])
 
 
@@ -521,7 +521,7 @@ def test_a_fallback_answer_never_makes_a_device_reachable(site, monkeypatch):
     r2 = step(site, NOON + timedelta(minutes=2), nac=facade, cfg=site.cfg, wbgt_c=35.5)
     reach_calls = [c for c in r2["calls"] if c["api"] == "device-reachability-status"]
     if reach_calls:
-        assert all(c["result"] is None for c in reach_calls), "yedek cevabı 'erişilebilir' sayılamaz"
+        assert all(c["result"] is None for c in reach_calls), "a fallback answer cannot count as 'reachable'"
         assert any(e["event"] == "untrusted_signal" for e in r2["ledger_added"])
 
 
@@ -538,8 +538,8 @@ def _probe_stub(result, ts_iso):
 
 
 @pytest.mark.parametrize("label,result,minutes_ago", [
-    ("bayat damga", "TRUE", 40),        # 40 min ago: the network did NOT produce a fresh fix
-    ("belirsiz cevap", "UNKNOWN", 0),   # UNKNOWN is not a trusted signal on the main path either
+    ("stale stamp", "TRUE", 40),        # 40 min ago: the network did NOT produce a fresh fix
+    ("ambiguous answer", "UNKNOWN", 0),   # UNKNOWN is not a trusted signal on the main path either
 ])
 def test_liveness_probe_refuses_weak_evidence(site, label, result, minutes_ago):
     from agent import policy as P
@@ -579,7 +579,7 @@ def test_the_ledger_reports_what_it_actually_holds(site, nac):
     r = step(site, NOON, nac, site.cfg, 35.5)
     pr = r["presence_record"]
     assert pr["ledger_entries"] > 0
-    assert pr["worker_presence_entries"] > 0, "defter işçi bazında zaman damgalı kayıt TUTUYOR"
+    assert pr["worker_presence_entries"] > 0, "the ledger DOES keep a timestamped per-worker record"
     assert pr["ledger_cap"] == site.cfg.budget.ledger_max_entries
     assert "that is the product" in pr["note"]
 
@@ -593,7 +593,7 @@ def test_the_ledger_is_bounded_and_counts_what_it_drops(site, nac):
     for k in range(6):
         step(site, NOON + timedelta(minutes=2 * k), nac, cfg, 35.5)
     assert len(site.ledger) <= 20
-    assert site.ledger_pruned > 0, "budama SESSİZ olmamalı — kaç satır düştüğü sayılır"
+    assert site.ledger_pruned > 0, "pruning must not be SILENT — the dropped rows are counted"
     assert site.presence_record()["ledger_pruned"] == site.ledger_pruned
 
 
@@ -621,7 +621,7 @@ def test_sweep_report_lists_this_sweeps_rows_even_after_pruning(site, nac):
         step(site, NOON + timedelta(minutes=2 * k), nac, cfg, 35.5)
     at = NOON + timedelta(minutes=10)
     r = step(site, at, nac, cfg, 35.5)
-    assert r["ledger_added"], "bu taramanın satırları rapordan düşmemeli"
+    assert r["ledger_added"], "this sweep's rows must not drop out of the report"
     assert all(e["t"] == at.isoformat().replace("+00:00", "Z") for e in r["ledger_added"])
 
 
@@ -671,4 +671,4 @@ def test_the_budget_report_separates_planned_queries_from_distress_calls(site, n
     assert sum(b["by_pool"].values()) == b["spent"] == len(r["calls"])
     assert b["planned_spent"] == b["by_pool"].get("main", 0) + b["by_pool"].get("reserve", 0) <= b["per_sweep"]
     assert b["outside_plan"] == b["spent"] - b["planned_spent"]
-    assert b["outside_plan"] > 0, "bu senaryoda sessiz cihazlar için plan dışı çağrı yapılır"
+    assert b["outside_plan"] > 0, "in this scenario silent devices trigger calls outside the plan"
