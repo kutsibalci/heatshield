@@ -88,3 +88,31 @@ def test_simulator_http_roundtrip():
     with pytest.raises(NacError) as e:
         c.reachability("+905551110002")
     assert e.value.kind == "server"
+
+
+def test_bad_input_does_not_open_the_circuit_for_everyone():
+    """Tek bir hatalı numara (400) bir kesinti değildir; devre açılıp herkesi kör etmemeli."""
+    profiles = {"+99999910001": {"fail": 400}, "+99999910002": {}}
+    c = NacClient(NacConfig(mode="fixture", retries=0, breaker_threshold=2, breaker_cooldown_s=60),
+                  fixtures=FixtureBackend(profiles, now=lambda: NOW))
+    for _ in range(3):
+        with pytest.raises(NacError) as e:
+            c.reachability("+99999910001")
+        assert e.value.kind == "bad_request"
+    assert c.reachability("+99999910002").data is not None
+
+
+def test_half_open_lets_exactly_one_probe_through():
+    from nac_client.resilience import CircuitBreaker
+    br = CircuitBreaker(failure_threshold=1, cooldown_s=60)
+    br.failure("x")
+    with pytest.raises(NacCircuitOpen):
+        br.before("x")                      # bekleme süresi dolmadı
+    br._states["x"].opened_at -= 61         # bekleme süresi doldu
+    br.before("x")                          # tek deneme izni
+    with pytest.raises(NacCircuitOpen):
+        br.before("x")                      # deneme sonuçlanmadan ikinci çağrı geçmez
+    br._states["x"].probe_at -= 61
+    br.before("x")                          # hiç sonuçlanmayan deneme devreyi sonsuza kilitlemez
+    br.success("x")
+    br.before("x")                          # başarılı deneme devreyi kapatır

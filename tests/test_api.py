@@ -408,3 +408,52 @@ def test_zone_labels_are_real_names_but_the_perimeter_stays_single(client):
     assert d["site"]["area"]["radius_m"] == 500
     # alt bölge toplamları vardiya listesini verir — etiket, ayrı bir çeper değil
     assert sum(z["workers"] for z in d["zones"]["list"]) == len(d["site"]["workers"])
+
+
+# ------------------------------------------------------------------ faz 1: doğruluk
+def test_wbgt_posted_via_the_api_goes_stale(client):
+    """Beslemeden gelen okuma zaman damgası taşımalı; yoksa günler önceki değerle tarama sürer."""
+    s = mk_site(client)
+    add(client, s["site_id"], "W-001", "+99999910001")
+    client.post(f"/v1/sites/{s['site_id']}/wbgt", json={"wbgt_c": 35.0, "now": T0.isoformat()})
+    r = client.post(f"/v1/sites/{s['site_id']}/sweep", json={"now": (T0 + timedelta(days=3)).isoformat()}).json()
+    assert r["wbgt_stale"] is True and r["breached"] is False and r["calls"] == []
+
+
+def test_new_sites_default_to_the_configured_jurisdiction(client, monkeypatch):
+    monkeypatch.setattr(m, "CFG", m.Config.from_env("SA"))
+    r = client.post("/v1/sites", json={"name": "Riyadh"})
+    assert r.status_code == 201
+    assert m.store.sites[r.json()["site_id"]].cfg.jurisdiction.code == "SA"
+
+
+def test_duplicate_worker_id_is_rejected_not_overwritten(client):
+    s = mk_site(client)
+    add(client, s["site_id"], "W-001", "+99999910001")
+    subs_before = len(m.store.subs)
+    r = client.post(f"/v1/sites/{s['site_id']}/workers", json={"worker_id": "W-001", "phone": "+99999910002"})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "ALREADY_EXISTS"
+    assert len(m.store.subs) == subs_before
+    assert client.get(f"/v1/sites/{s['site_id']}").json()["workers"][0]["masked"].endswith("0001")
+
+
+def test_webhook_events_without_an_id_are_still_deduplicated(client):
+    s = mk_site(client)
+    add(client, s["site_id"], "W-001", "+99999910001")
+    sub = client.get(f"/v1/sites/{s['site_id']}").json()["subscriptions"]["W-001"]
+    body = ce(sub, GEO_ENTERED, "+99999910001")
+    body.pop("id")
+    assert client.post("/webhooks/geofence", json=body, headers=AUTH).json().get("duplicate") is None
+    assert client.post("/webhooks/geofence", json=body, headers=AUTH).json()["duplicate"] is True
+
+
+def test_webhook_dedupe_window_is_bounded_without_forgetting_recent_ids(client, monkeypatch):
+    monkeypatch.setattr(m, "DEDUPE_WINDOW", 3)
+    s = mk_site(client)
+    add(client, s["site_id"], "W-001", "+99999910001")
+    sub = client.get(f"/v1/sites/{s['site_id']}").json()["subscriptions"]["W-001"]
+    for i in range(5):
+        client.post("/webhooks/geofence", json=ce(sub, GEO_ENTERED, "+99999910001", at=T0 + timedelta(minutes=i), ce_id=f"e{i}"), headers=AUTH)
+    assert len(m.store.seen_cloudevent_ids) == 3
+    again = ce(sub, GEO_ENTERED, "+99999910001", at=T0 + timedelta(minutes=4), ce_id="e4")
+    assert client.post("/webhooks/geofence", json=again, headers=AUTH).json()["duplicate"] is True

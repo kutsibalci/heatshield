@@ -17,6 +17,7 @@ Gizlilik / hukuki dayanak (idea capture §10):
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -24,6 +25,7 @@ import os
 import sys
 import threading
 import uuid
+from collections import OrderedDict
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -49,6 +51,9 @@ WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "heatshield-dev-token")
 # Demo senaryolari bu tavana tabi degil — kendi sahalarini sifirdan kurup magazayi temizliyorlar.
 MAX_SITES = int(os.environ.get("HS_MAX_SITES") or 50)
 MAX_WORKERS_PER_SITE = int(os.environ.get("HS_MAX_WORKERS_PER_SITE") or 500)
+# Webhook tekilleme penceresi: en eski kimlik dusurulur (FIFO). Eskiden pencere dolunca kume
+# TAMAMEN siliniyordu — o an tekrar gonderilen her olay yeniden uygulanirdi.
+DEDUPE_WINDOW = 10_000
 CFG = Config.from_env()
 
 # Demo sahası ve vardiya listesi VERİDİR, kod değil: fixtures/roster.json. Orada 13 adlandırılmış
@@ -138,7 +143,7 @@ class Store:
     def reset(self) -> None:
         self.sites: dict[str, SiteRuntime] = {}
         self.subs: dict[str, tuple[str, str]] = {}   # subscription_id → (site_id, worker_id)
-        self.seen_cloudevent_ids: set[str] = set()
+        self.seen_cloudevent_ids: OrderedDict[str, None] = OrderedDict()
         self.degraded: list[dict] = []
         self.lock = threading.RLock()
 
@@ -313,7 +318,8 @@ class SiteIn(BaseModel):
     # (kaynaklar fixtures/roster.json `_sources`). Yarıçap 500 m KALIR — ölçülen 1000 m konum
     # belirsizliğinin karşısındaki çeper bu ve bütün iddialarımız o orana dayanıyor.
     name: str = ROSTER["site"]["name"]
-    jurisdiction: str = Field(default="QA", pattern="^(QA|SA|AE|qa|sa|ae)$")
+    # Varsayilan, dagitimin yargi alanidir (HS_JURISDICTION) — sabit "QA" degil.
+    jurisdiction: str = Field(default_factory=lambda: CFG.jurisdiction.code, pattern="^(QA|SA|AE|qa|sa|ae)$")
     lat: float = ROSTER["site"]["lat"]
     lng: float = ROSTER["site"]["lng"]
     radius_m: float = ROSTER["site"]["radius_m"]
@@ -425,6 +431,9 @@ def get_site(site_id: str):
 def add_worker(site_id: str, body: WorkerIn):
     with store.lock:
         site = store.site_or_404(site_id)
+        if body.worker_id in site.workers:
+            # Sessizce ustune yazmak eski kaydin aboneliklerini sahipsiz birakiyordu.
+            raise HTTPException(409, {"code": "ALREADY_EXISTS", "message": f"worker {body.worker_id} is already on this site"})
         if len(site.workers) >= MAX_WORKERS_PER_SITE:
             raise HTTPException(429, {"code": "WORKER_CAP", "message": f"a site on this instance holds at most "
                                       f"{MAX_WORKERS_PER_SITE} workers (measured full-coverage ceiling is ~110 anyway)"})
@@ -439,8 +448,10 @@ def set_wbgt(site_id: str, body: WbgtIn):
     """Meteoroloji beslemesi (WBGT). Ölçüm defterlenir; karar taramada verilir."""
     with store.lock:
         site = store.site_or_404(site_id)
-        site.wbgt_c = body.wbgt_c
         at = _parse_dt(body.now) or _now()
+        # Okumanin ZAMANI da yazilir: yoksa bayatlik kontrolu hic devreye girmez ve ajan gunler
+        # onceki bir degerle taramaya devam eder.
+        site.wbgt_c, site.wbgt_at = body.wbgt_c, at
         site.log(at, "wbgt_reading", f"WBGT {body.wbgt_c} °C (legal limit {site.cfg.jurisdiction.wbgt_limit_c} °C)",
                  source="meteorology-feed", extra={"wbgt_c": body.wbgt_c})
         return {"site_id": site.site_id, "wbgt_c": site.wbgt_c, "limit_c": site.cfg.jurisdiction.wbgt_limit_c}
@@ -535,12 +546,13 @@ def webhook_geofence(ev: dict = Body(...), authorization: Optional[str] = Header
                         break
         if not found:
             raise HTTPException(404, {"code": "UNKNOWN_SUBSCRIPTION", "message": "no subscription/worker matched"})
-        ce_id = ev.get("id") or f"ce-{uuid.uuid4().hex[:8]}"
+        # `id` yoksa olayin icerigi kimlik olur: rastgele kimlik, ayni olayin iki teslimini iki olay sayiyordu.
+        ce_id = ev.get("id") or "sha256:" + hashlib.sha256(json.dumps(ev, sort_keys=True, default=str).encode()).hexdigest()
         if ce_id in store.seen_cloudevent_ids:
             return {"ok": True, "duplicate": True}
-        if len(store.seen_cloudevent_ids) > 10_000:   # tekilleme penceresi sinirli kalsin
-            store.seen_cloudevent_ids.clear()
-        store.seen_cloudevent_ids.add(ce_id)
+        store.seen_cloudevent_ids[ce_id] = None
+        while len(store.seen_cloudevent_ids) > DEDUPE_WINDOW:
+            store.seen_cloudevent_ids.popitem(last=False)
         etype = ev.get("type", "")
         if etype.endswith("subscription-ends"):
             return {"ok": True, "handled": "subscription-ends"}

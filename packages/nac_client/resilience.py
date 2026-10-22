@@ -17,6 +17,12 @@ class CircuitState:
     failures: int = 0
     opened_at: float | None = None
     half_open: bool = False
+    probe_at: float | None = None      # yari acik denemenin basladigi an
+
+
+# Girdiye ozgu hatalar (hatali numara, bilinmeyen cihaz) bir KESINTI degildir: tek bir bozuk kayit
+# devreyi acip herkesi kor etmemeli. Servis cevap verdi — bu, ayakta oldugunun kanitidir.
+INPUT_ERROR_KINDS = frozenset({"bad_request", "not_found"})
 
 
 @dataclass
@@ -24,7 +30,9 @@ class CircuitBreaker:
     """API adı başına devre kesici.
 
     failure_threshold ardışık hatadan sonra devre açılır; cooldown_s boyunca çağrılar anında NacCircuitOpen fırlatır.
-    Süre dolunca tek bir deneme (half-open) geçer; başarılıysa devre kapanır.
+    Süre dolunca TEK bir deneme (half-open) geçer; o sonuçlanana kadar diğer çağrılar beklemez, reddedilir.
+    Başarılıysa devre kapanır, başarısızsa yeniden açılır. Deneme hiç sonuçlanmazsa (beklenmedik bir
+    istisna) bir cooldown sonra yeni bir denemeye izin verilir — devre sonsuza kadar kilitli kalmaz.
     """
 
     failure_threshold: int = 3
@@ -40,11 +48,15 @@ class CircuitBreaker:
             st = self._state(api)
             if st.opened_at is None:
                 return
-            elapsed = time.monotonic() - st.opened_at
-            if elapsed >= self.cooldown_s and not st.half_open:
-                st.half_open = True  # tek deneme izni
-                return
+            now = time.monotonic()
             if st.half_open:
+                if st.probe_at is not None and now - st.probe_at >= self.cooldown_s:
+                    st.probe_at = now      # takili kalmis deneme: yenisine izin ver
+                    return
+                raise NacCircuitOpen(api, self.cooldown_s - (now - (st.probe_at or now)))
+            elapsed = now - st.opened_at
+            if elapsed >= self.cooldown_s:
+                st.half_open, st.probe_at = True, now  # tek deneme izni
                 return
             raise NacCircuitOpen(api, self.cooldown_s - elapsed)
 
@@ -58,7 +70,7 @@ class CircuitBreaker:
             st.failures += 1
             if st.half_open or st.failures >= self.failure_threshold:
                 st.opened_at = time.monotonic()
-                st.half_open = False
+                st.half_open, st.probe_at = False, None
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -84,7 +96,9 @@ def with_retry(
         try:
             result = fn()
         except NacError as e:
-            if breaker:
+            if breaker and e.kind in INPUT_ERROR_KINDS:
+                breaker.success(api)
+            elif breaker:
                 breaker.failure(api)
             if e.retryable and attempt < retries:
                 attempt += 1

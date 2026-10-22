@@ -595,3 +595,68 @@ def test_the_ledger_is_bounded_and_counts_what_it_drops(site, nac):
     assert len(site.ledger) <= 20
     assert site.ledger_pruned > 0, "budama SESSİZ olmamalı — kaç satır düştüğü sayılır"
     assert site.presence_record()["ledger_pruned"] == site.ledger_pruned
+
+
+# ------------------------------------------------------------------ defter bütünlüğü
+def test_ledger_seq_stays_unique_after_pruning(site, nac):
+    populate(site)
+    cfg = Config()
+    object.__setattr__(cfg.budget, "ledger_max_entries", 20)
+    site.cfg = cfg
+    seen: dict[int, tuple] = {}
+    for k in range(6):
+        step(site, NOON + timedelta(minutes=2 * k), nac, cfg, 35.5)
+        for e in site.ledger:           # aynı numara, zaman içinde hep AYNI satırı göstermeli
+            assert seen.setdefault(e["seq"], (e["t"], e["event"], e["detail"])) == (e["t"], e["event"], e["detail"])
+    assert site.ledger_pruned > 0
+    assert site.ledger[-1]["seq"] == site.ledger_pruned + len(site.ledger)
+
+
+def test_sweep_report_lists_this_sweeps_rows_even_after_pruning(site, nac):
+    populate(site)
+    cfg = Config()
+    object.__setattr__(cfg.budget, "ledger_max_entries", 20)
+    site.cfg = cfg
+    for k in range(5):
+        step(site, NOON + timedelta(minutes=2 * k), nac, cfg, 35.5)
+    at = NOON + timedelta(minutes=10)
+    r = step(site, at, nac, cfg, 35.5)
+    assert r["ledger_added"], "bu taramanın satırları rapordan düşmemeli"
+    assert all(e["t"] == at.isoformat().replace("+00:00", "Z") for e in r["ledger_added"])
+
+
+def test_breach_started_row_is_part_of_the_sweep_report(site, nac):
+    """Tetikleyici damgası rapordaki satırlara vurulur; ihlalin başladığı satır dışarıda kalmamalı."""
+    populate(site)
+    r = step(site, NOON, nac, site.cfg, 35.5)
+    assert any(e["event"] == "breach_started" for e in r["ledger_added"])
+
+
+def test_missing_coordinate_is_not_stored_as_zero_zero(site, nac):
+    """Konum servisi merkez döndürmezse defter (0, 0) gibi sahte bir koordinat yazmamalı."""
+    from nac_client.client import NacResult
+
+    class NoCentre(Facade):
+        def call(self, name, *a, **kw):
+            if name == "location_retrieve":
+                return NacResult(api=name, data={"area": {}}, source="fixture", latency_ms=0, correlator="x")
+            return super().call(name, *a, **kw)
+
+    populate(site)
+    step(site, NOON, nac, site.cfg, 35.5)
+    w = site.workers["W-002"]
+    w.escalated, w.state = True, "distress"
+    step(site, NOON + timedelta(minutes=2), NoCentre(nac.nac), site.cfg, 35.5)
+    rows = [e for e in site.ledger if e["event"] == "location_retrieve"]
+    assert rows and all(not e.get("coarse") for e in rows)
+    assert site.presence_record()["coordinates_stored"] == 0
+
+
+# ------------------------------------------------------------------ geofence sırası
+def test_a_late_stale_exit_does_not_override_a_newer_entry(site):
+    populate(site, count=1)
+    apply_geofence_event(site, "W-001", "enter", T0 + timedelta(hours=1))
+    entry = apply_geofence_event(site, "W-001", "exit", T0 + timedelta(minutes=30))   # geç teslim edildi
+    w = site.workers["W-001"]
+    assert w.inside is True and w.exited_at is None
+    assert entry["event"] == "geofence_out_of_order"
