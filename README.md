@@ -55,7 +55,7 @@ HeatShield does not establish identity, it measures exposure, and calling those 
 
 ```bash
 python -m pip install -r requirements.txt
-python -m pytest -q                  # 144 tests
+python -m pytest -q                  # 149 tests
 ```
 
 Three modes, selected by `NAC_MODE`:
@@ -120,7 +120,7 @@ Detail: [`docs/architecture.md`](docs/architecture.md) · [`docs/api-availabilit
 [`docs/demo-script.md`](docs/demo-script.md)
 
 Tests: `tests/test_rules.py` · `tests/test_policy.py` · `tests/test_planner.py` · `tests/test_api.py` ·
-`tests/test_nac_client.py` — **144 total** (parametrised cases included), all offline.
+`tests/test_nac_client.py` — **149 total** (parametrised cases included), all offline.
 
 ## Why this is not the GSMA catalogue use case
 
@@ -182,7 +182,7 @@ statistic in this repository rests on live data. It is the first question we are
 and exit (`apps/api/main.py`). And `maxAge` is **mandatory** on Location Retrieval; without it the platform returns
 422. The freshness axis the cost ladder rides on is the platform's requirement, not our design preference.
 
-What is not in doubt: a working prototype runs today, offline, with 144 automated tests and six one-click demos.
+What is not in doubt: a working prototype runs today, offline, with 149 automated tests and six one-click demos.
 Nothing in this repository is claimed as live that is not. Raw probe output (credentials and MSISDN masked) is in
 [`evidence/probe-20260909-124244.json`](evidence/probe-20260909-124244.json), the
 Location Verification radius scan in

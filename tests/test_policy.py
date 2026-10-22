@@ -660,3 +660,15 @@ def test_a_late_stale_exit_does_not_override_a_newer_entry(site):
     w = site.workers["W-001"]
     assert w.inside is True and w.exited_at is None
     assert entry["event"] == "geofence_out_of_order"
+
+
+def test_the_budget_report_separates_planned_queries_from_distress_calls(site, nac):
+    """Canlılık, tıkanıklık ve QoD çağrıları planın dışında. Toplamı gizlemiyoruz; ayrıştırıyoruz."""
+    populate(site)
+    step(site, NOON, nac, site.cfg, 35.5)
+    r = step(site, NOON + timedelta(minutes=2), nac, site.cfg, 35.5)
+    b = r["budget"]
+    assert sum(b["by_pool"].values()) == b["spent"] == len(r["calls"])
+    assert b["planned_spent"] == b["by_pool"].get("main", 0) + b["by_pool"].get("reserve", 0) <= b["per_sweep"]
+    assert b["outside_plan"] == b["spent"] - b["planned_spent"]
+    assert b["outside_plan"] > 0, "bu senaryoda sessiz cihazlar için plan dışı çağrı yapılır"

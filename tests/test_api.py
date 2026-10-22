@@ -457,3 +457,85 @@ def test_webhook_dedupe_window_is_bounded_without_forgetting_recent_ids(client, 
     assert len(m.store.seen_cloudevent_ids) == 3
     again = ce(sub, GEO_ENTERED, "+99999910001", at=T0 + timedelta(minutes=4), ce_id="e4")
     assert client.post("/webhooks/geofence", json=again, headers=AUTH).json()["duplicate"] is True
+
+
+# ------------------------------------------------------------------ faz 2: eşzamanlılık
+def test_reset_keeps_the_same_locks(client):
+    """Sıfırlama kilidi DEĞİŞTİRMEMELİ: eski kilidi bekleyenler ile yenisini alanlar aynı anda yazardı."""
+    lock = m.store.lock
+    client.post("/v1/demo/no-breach")
+    m.store.reset()
+    assert m.store.lock is lock
+
+
+def test_readers_never_see_a_container_change_under_them(client):
+    """Kilitsiz okuyucu bir sözlüğü dolaşırken yazıcı onu büyütürse `dictionary changed size during
+    iteration` alınıyordu (iki iş parçacığıyla 400 işçide 390 kez ölçüldü). Kural: tarama dışında
+    büyüyen kaplar yerinde değiştirilmez, kopyalanıp yeniden atanır — okuyucunun elindeki hiç değişmez."""
+    s = mk_site(client)
+    site = m.store.sites[s["site_id"]]
+    held = (m.store.sites, m.store.subs, site.workers, site.subscriptions, site.subscriptions_left)
+    sizes = [len(c) for c in held]
+    add(client, s["site_id"], "W-001", "+99999910001")
+    mk_site(client)
+    assert [len(c) for c in held] == sizes
+    assert len(site.workers) == 1 and len(m.store.sites) == 2
+
+
+def test_a_slow_operator_on_one_site_does_not_stall_another(client, monkeypatch):
+    """Nokia çağrısı yavaşken tek bir global kilit bütün API'yi durduruyordu."""
+    import threading
+    slow_site, other = mk_site(client), mk_site(client)
+    add(client, slow_site["site_id"], "W-001", "+99999910001", subscribe=False)
+    started = threading.Event()
+    real_call = m.facade.call
+
+    def slow_call(name, *a, **kw):
+        if name == "location_verify":
+            started.set()
+            time.sleep(1.5)
+        return real_call(name, *a, **kw)
+
+    monkeypatch.setattr(m.facade, "call", slow_call)
+    t = threading.Thread(target=lambda: client.post(f"/v1/sites/{slow_site['site_id']}/sweep",
+                                                    json={"now": NOON.isoformat(), "wbgt_c": 35.0}))
+    t.start()
+    try:
+        assert started.wait(5)
+        t0 = time.monotonic()
+        assert client.post(f"/v1/sites/{other['site_id']}/wbgt", json={"wbgt_c": 30.0}).status_code == 200
+        assert client.get("/v1/sites").status_code == 200
+        assert time.monotonic() - t0 < 0.75
+    finally:
+        t.join()
+
+
+def test_planner_guard_demo_does_not_touch_process_state(client, monkeypatch):
+    """Demo, sınıf metodunu ve ortam değişkenlerini süreç genelinde değiştiriyordu: aynı anda
+    çalışan gerçek bir tarama taklit modele gidebilirdi."""
+    from agent import llm_adapter as LA
+
+    class RecordingEnviron(dict):
+        writes: list = []
+
+        def __setitem__(self, k, v):
+            self.writes.append(k)
+            super().__setitem__(k, v)
+
+        def pop(self, k, *d):
+            self.writes.append(k)
+            return super().pop(k, *d)
+
+    env = RecordingEnviron(os.environ)
+    monkeypatch.setattr(m.os, "environ", env)
+    method = LA.LLMPlanner.__dict__["_call_gemini"]
+    seen = []
+    monkeypatch.setattr(m, "_sweep", lambda *a, **kw: (seen.append(LA.LLMPlanner.__dict__["_call_gemini"] is method),
+                                                         _real_sweep(*a, **kw))[1])
+    r = client.post("/v1/demo/planner-guard", json={})
+    assert r.status_code == 200 and r.json()["simulated_model"] is True
+    assert r.json()["rejected"]["violation"] and r.json()["accepted"]["used"]
+    assert env.writes == [] and seen and all(seen)
+
+
+_real_sweep = m._sweep

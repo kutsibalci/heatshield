@@ -114,8 +114,7 @@ class SafeFacade(NacFacade):
             # Operatorun 4xx/5xx govdesinin ilk 200 karakteri `NacError.message` icine giriyor ve
             # buradan `/v1/state`e yayiliyordu — maskesiz. Log yolu `MaskingFilter` ile kapaliydi
             # ama bu yol logdan degil YANITTAN geciyor.
-            store.degraded.append(_mask_deep({"t": _iso(_now()), "call": name, **e.to_dict()}))
-            del store.degraded[:-200]          # sinirli: /v1/state son 10'unu gosterir, liste buyumesin
+            store.record_degraded(_mask_deep({"t": _iso(_now()), "call": name, **e.to_dict()}))
             return NacResult(api=name, data={}, source=f"error({e.kind})", latency_ms=0, correlator=str(uuid.uuid4()))
 
 
@@ -137,18 +136,37 @@ def _iso(dt: datetime | None) -> str | None:
 
 # ============================================================================ store
 class Store:
+    """Uygulama durumu. Kilit düzeni:
+
+    - `store.lock` mağazanın YAPISINI korur (sites, subs, phone_index, tekilleme) ve demo senaryolarını
+      birbirinden ayırır. Kısa tutulur; demo dışında operatör çağrısı sırasında TUTULMAZ.
+    - `site.lock` bir sahanın durumunu korur (tarama, işçi ekleme, olay, WBGT).
+    - Sıra: site.lock → store.lock olabilir, tersi ASLA. Böylece kilitlenme (deadlock) olamaz.
+    - Okuyanlar kilit tutmaz: kaplar yerinde değiştirilmez, kopyalanıp yeniden atanır.
+    """
+
     def __init__(self) -> None:
+        # Kilit BİR KEZ oluşturulur. `reset()` içinde yeniden yaratıldığında eski kilidi bekleyenler
+        # ile yenisini alanlar aynı anda yazıyordu.
+        self.lock = threading.RLock()
+        self._degraded_lock = threading.Lock()
         self.reset()
 
     def reset(self) -> None:
         self.sites: dict[str, SiteRuntime] = {}
-        self.subs: dict[str, tuple[str, str]] = {}   # subscription_id → (site_id, worker_id)
+        self.subs: dict[str, tuple[str, str]] = {}          # subscription_id → (site_id, worker_id)
+        self.phone_index: dict[str, tuple[str, str]] = {}   # phone_hash → (site_id, worker_id)
         self.seen_cloudevent_ids: OrderedDict[str, None] = OrderedDict()
-        self.degraded: list[dict] = []
-        self.lock = threading.RLock()
+        self.degraded: tuple[dict, ...] = ()
+
+    def record_degraded(self, item: dict) -> None:
+        with self._degraded_lock:                # sınırlı: /v1/state son 10'unu gösterir
+            self.degraded = (*self.degraded, item)[-200:]
 
     def site_or_404(self, sid: str) -> SiteRuntime:
-        s = self.sites.get(sid)
+        # Kısa bir `store.lock`: demo kendi sahasını kurarken dışarıdan ona yazılamasın.
+        with self.lock:
+            s = self.sites.get(sid)
         if not s:
             raise HTTPException(404, {"code": "NOT_FOUND", "message": "site not found"})
         return s
@@ -197,7 +215,7 @@ class Scheduler:
     plan görevi periyodik uyanır, her saha için `sweep_due()` sorar, gerekiyorsa taramayı çalıştırır.
 
     Kurallar:
-    - Mevcut eşzamanlılık modeli korunur: tur bütünüyle `store.lock` altında çalışır.
+    - Her saha kendi kilidi altında taranır (bkz. `Store`); tur, global kilidi boyunca tutmaz.
     - Bloklayan iş (senkron Nokia çağrıları) `asyncio.to_thread` ile olay döngüsünün DIŞINDA koşar.
     - Hata görevi ÖLDÜRMEZ: sayaca yazılır, loglanır, bir sonraki tur devam eder.
     - WBGT ölçümü hiç girilmemiş sahada verilecek karar yoktur — boşuna çalışmaz.
@@ -278,10 +296,12 @@ class Scheduler:
         """Bir uyanış: her saha için `sweep_due()` sor, gerekiyorsa tara. Testlerden doğrudan çağrılabilir."""
         at = now or _now()
         ran: list[dict] = []
-        with store.lock:
-            self.ticks += 1
-            self.last_tick_at = at
-            for site in list(store.sites.values()):
+        self.ticks += 1
+        self.last_tick_at = at
+        with store.lock:                               # demo sürerken kurulmakta olan sahayı görme
+            sites = list(store.sites.values())
+        for site in sites:
+            with site.lock:                            # saha başına: yavaş bir saha diğerini bekletmez
                 if site.wbgt_c is None:
                     continue                                   # ölçüm yok → verilecek karar yok
                 if not sweep_due(site, at, site.cfg):
@@ -293,10 +313,10 @@ class Scheduler:
                     self.last_error = f"{site.site_id}: {type(e).__name__}: {e}"
                     log.exception("scheduled sweep failed site=%s — the loop continues", site.site_id)
                     continue
-                self.sweeps_run += 1
-                ran.append({"site_id": site.site_id, "at": _iso(at), "breached": r.get("breached"),
-                            "level": r.get("level"), "queries": len(r.get("calls") or []),
-                            "next_due_in_min": r.get("sweep_interval_min")})
+            self.sweeps_run += 1
+            ran.append({"site_id": site.site_id, "at": _iso(at), "breached": r.get("breached"),
+                        "level": r.get("level"), "queries": len(r.get("calls") or []),
+                        "next_due_in_min": r.get("sweep_interval_min")})
         return ran
 
     def to_dict(self) -> dict:
@@ -376,7 +396,8 @@ def _create_site(body: SiteIn, at: datetime | None = None) -> SiteRuntime:
     cfg = _site_cfg(body.jurisdiction)
     site = SiteRuntime(site_id=f"site-{uuid.uuid4().hex[:6]}", name=body.name, lat=body.lat, lng=body.lng,
                        radius_m=max(float(body.radius_m), CFG.min_perimeter_radius_m), cfg=cfg)
-    store.sites[site.site_id] = site
+    with store.lock:
+        store.sites = {**store.sites, site.site_id: site}
     site.log(at or _now(), "site_registered", f"{site.name} — {cfg.jurisdiction.name}: {cfg.jurisdiction.legal_ref}", source="jurisdiction-config")
     return site
 
@@ -388,7 +409,10 @@ def _add_worker(site: SiteRuntime, body: WorkerIn) -> WorkerRuntime:
                    first_day_on_site=body.first_day_on_site, prior_incident=body.prior_incident,
                    shift=body.shift, badge_in=body.badge_in, device_history=dict(body.device_history),
                    moving_out=body.moving_out, reachable_via_operator=body.reachable_via_operator)
-    site.workers[w.worker_id] = w
+    # Çağıran `site.lock` tutar. Kaplar kopyalanıp atanır: kilitsiz okuyucu değişen sözlüğü dolaşmaz.
+    site.workers = {**site.workers, w.worker_id: w}
+    with store.lock:
+        store.phone_index = {**store.phone_index, w.phone_hash: (site.site_id, w.worker_id)}
     if body.subscribe:
         sink = f"{PUBLIC_BASE_URL.rstrip('/')}/webhooks/geofence"
         # CAMARA: abonelik başına TEK olay tipi. Giriş ve çıkış için AYRI abonelik açılır —
@@ -399,11 +423,12 @@ def _add_worker(site: SiteRuntime, body: WorkerIn) -> WorkerRuntime:
             sid = (r.data or {}).get("id")
             if not sid:
                 continue
-            store.subs[sid] = (site.site_id, w.worker_id)
+            with store.lock:
+                store.subs = {**store.subs, sid: (site.site_id, w.worker_id)}
             if etype == GEO_ENTERED:
-                site.subscriptions[w.worker_id] = sid          # birincil kimlik (geriye dönük)
+                site.subscriptions = {**site.subscriptions, w.worker_id: sid}   # birincil kimlik (geriye dönük)
             else:
-                site.subscriptions_left[w.worker_id] = sid
+                site.subscriptions_left = {**site.subscriptions_left, w.worker_id: sid}
     return w
 
 
@@ -429,8 +454,8 @@ def get_site(site_id: str):
 
 @app.post("/v1/sites/{site_id}/workers", status_code=201)
 def add_worker(site_id: str, body: WorkerIn):
-    with store.lock:
-        site = store.site_or_404(site_id)
+    site = store.site_or_404(site_id)
+    with site.lock:
         if body.worker_id in site.workers:
             # Sessizce ustune yazmak eski kaydin aboneliklerini sahipsiz birakiyordu.
             raise HTTPException(409, {"code": "ALREADY_EXISTS", "message": f"worker {body.worker_id} is already on this site"})
@@ -446,8 +471,8 @@ def add_worker(site_id: str, body: WorkerIn):
 @app.post("/v1/sites/{site_id}/wbgt")
 def set_wbgt(site_id: str, body: WbgtIn):
     """Meteoroloji beslemesi (WBGT). Ölçüm defterlenir; karar taramada verilir."""
-    with store.lock:
-        site = store.site_or_404(site_id)
+    site = store.site_or_404(site_id)
+    with site.lock:
         at = _parse_dt(body.now) or _now()
         # Okumanin ZAMANI da yazilir: yoksa bayatlik kontrolu hic devreye girmez ve ajan gunler
         # onceki bir degerle taramaya devam eder.
@@ -461,8 +486,8 @@ def set_wbgt(site_id: str, body: WbgtIn):
 def sweep(site_id: str, body: SweepIn | None = None):
     """Bir tarama çalıştırır ve tam raporu döner (plan, çağrılar, kararlar, bütçe, deftere eklenenler)."""
     body = body or SweepIn()
-    with store.lock:
-        site = store.site_or_404(site_id)
+    site = store.site_or_404(site_id)
+    with site.lock:
         at = _parse_dt(body.now) or _now()
         if not body.force and not sweep_due(site, at, site.cfg):
             return {"skipped": True, "reason": f"sweep cadence not due yet ({site.level})", "last_sweep_at": _iso(site.last_sweep_at)}
@@ -473,7 +498,7 @@ def sweep(site_id: str, body: SweepIn | None = None):
 def ledger(site_id: str, worker_id: str | None = None, event: str | None = None, limit: int = Query(200, le=1000)):
     """Kanıt defteri — denetçi/sigortacı için zaman damgalı, işçi bazlı uyum kaydı."""
     site = store.site_or_404(site_id)
-    items = [e for e in site.ledger if (not worker_id or e.get("worker_id") == worker_id) and (not event or e["event"] == event)]
+    items = [e for e in list(site.ledger) if (not worker_id or e.get("worker_id") == worker_id) and (not event or e["event"] == event)]
     return {"site_id": site_id, "count": len(items), "items": items[-limit:], "coverage": site.coverage()}
 
 
@@ -489,7 +514,7 @@ def state():
         "now": _iso(_now()), "config": CFG.to_dict(),
         "sites": [s.to_dict() for s in store.sites.values()],
         "subscriptions": [{"id": sid, "site_id": s, "worker_id": w} for sid, (s, w) in store.subs.items()],
-        "degraded": store.degraded[-10:],
+        "degraded": list(store.degraded[-10:]),
         "webhook": {"sink": f"{PUBLIC_BASE_URL.rstrip('/')}/webhooks/geofence", "token_required": bool(WEBHOOK_TOKEN)},
         "scheduler": scheduler.to_dict(),   # ajanın kendi saati: açık mı, son tur ne zaman döndü
         # ESKIDEN BURADA SABIT 0 VARDI ve "surekli konum gecmisi tutulmaz" diyordu — YANLISTI.
@@ -533,17 +558,12 @@ def webhook_geofence(ev: dict = Body(...), authorization: Optional[str] = Header
         raise HTTPException(401, {"code": "UNAUTHENTICATED", "message": "invalid webhook token"})
     if not isinstance(ev, dict) or "type" not in ev:
         raise HTTPException(400, {"code": "INVALID_ARGUMENT", "message": "a CloudEvent is expected"})
-    with store.lock:
+    with store.lock:                        # yalnızca eşleme + tekilleme; olay saha kilidi altında uygulanır
         data = ev.get("data") or {}
         found = store.subs.get(data.get("subscriptionId") or "")
         if not found:
             phone = (data.get("device") or {}).get("phoneNumber")
-            h = hash_phone(phone) if phone else None
-            for s in store.sites.values():
-                for w in s.workers.values():
-                    if h and w.phone_hash == h:
-                        found = (s.site_id, w.worker_id)
-                        break
+            found = store.phone_index.get(hash_phone(phone)) if phone else None
         if not found:
             raise HTTPException(404, {"code": "UNKNOWN_SUBSCRIPTION", "message": "no subscription/worker matched"})
         # `id` yoksa olayin icerigi kimlik olur: rastgele kimlik, ayni olayin iki teslimini iki olay sayiyordu.
@@ -563,7 +583,10 @@ def webhook_geofence(ev: dict = Body(...), authorization: Optional[str] = Header
         else:
             raise HTTPException(400, {"code": "UNSUPPORTED_TYPE", "message": f"unsupported CloudEvent type: {etype}"})
         site_id, worker_id = found
-        site = store.sites[site_id]
+        site = store.sites.get(site_id)
+    if site is None:
+        raise HTTPException(404, {"code": "UNKNOWN_SUBSCRIPTION", "message": "the site for this subscription is gone"})
+    with site.lock:
         entry = apply_geofence_event(site, worker_id, kind, _parse_dt(ev.get("time")) or _now())
         return {"ok": True, "site_id": site_id, "worker_id": worker_id, "kind": kind, "ledger": entry, "cost": 0}
 
@@ -772,45 +795,33 @@ def demo_planner_guard(body: DemoIn | None = None):
     yanıtta `simulated_model=true` olarak açıkça belirtilir — canlı model gibi sunulmaz.
     """
     from agent import llm_adapter as LA
-    from agent import policy as AP
 
-    def _valid(_self, prompt):   # kurala uyan öneri: en kırılganı öne al (listeyi tersine çevir)
+    def _valid(prompt):   # kurala uyan öneri: en kırılganı öne al (listeyi tersine çevir)
         ids = [i["id"] for i in json.loads(prompt)["plan"]]
         return json.dumps({"order": [{"id": i, "why": "unacclimatised / unseen longest"} for i in reversed(ids)],
                            "note": "risk order revised"})
 
-    def _injects(_self, prompt):  # ihlal: planda olmayan bir işçi ekle
+    def _injects(prompt):  # ihlal: planda olmayan bir işçi ekle
         ids = [i["id"] for i in json.loads(prompt)["plan"]]
         return json.dumps({"order": [{"id": "W-999", "why": "not in the plan at all"}] + [{"id": i} for i in ids]})
 
+    def _scripted(reply) -> "LA.LLMPlanner":
+        # Taklit sağlayıcı YALNIZCA bu demo sahasına verilir (`site.planner`). Eskiden ortam
+        # değişkenleri ve `LLMPlanner._call_gemini` süreç genelinde değiştiriliyordu: demo sürerken
+        # başka bir sahanın gerçek taraması taklit modele gidebilirdi. Model adı bilerek
+        # "demo-simulated": defterde canlı Gemini gibi görünmesin.
+        planner = LA.LLMPlanner("gemini", "demo-key", model="demo-simulated")
+        planner._call_gemini = reply
+        return planner
+
     with store.lock:
         body, t0 = _demo_start(body)
-        original = LA.LLMPlanner._call_gemini
-        # Ortamı DEĞİŞTİRMEDEN ÖNCE yedekle: demo bittiğinde canlı planlayıcı aynen geri gelmeli.
-        # (Bir denetimde bulunmuştu: demo `HS_PLANNER`'ı sabit "rules"a çekip gerçek anahtarı
-        #  siliyordu; jüri demoya bastıktan sonra süreç boyunca canlı Gemini bir daha çalışmıyordu.)
-        saved = {k: os.environ.get(k) for k in ("HS_PLANNER", "GEMINI_API_KEY", "HS_GEMINI_MODEL")}
-        try:
-            # Model adı bilerek "demo-simulated": defterde canlı Gemini gibi görünmesin.
-            os.environ["HS_PLANNER"], os.environ["GEMINI_API_KEY"] = "gemini", "demo-key"
-            os.environ["HS_GEMINI_MODEL"] = "demo-simulated"
-
-            LA.LLMPlanner._call_gemini = _valid
-            AP.reset_planner()
-            site = _setup_site(t0, 0)
-            s1 = _sweep(site, t0 + timedelta(minutes=75), 35.6, "10:15 — the model reorders the queue")
-
-            LA.LLMPlanner._call_gemini = _injects
-            AP.reset_planner()
-            s2 = _sweep(site, t0 + timedelta(minutes=85), 35.6, "10:25 — the model slips in a worker who is not in the plan")
-        finally:
-            LA.LLMPlanner._call_gemini = original
-            for k, v in saved.items():          # ne varsa aynen geri koy, yoksa yokluğunu geri koy
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-            AP.reset_planner()
+        site = _setup_site(t0, 0)
+        site.planner = _scripted(_valid)
+        s1 = _sweep(site, t0 + timedelta(minutes=75), 35.6, "10:15 — the model reorders the queue")
+        site.planner = _scripted(_injects)
+        s2 = _sweep(site, t0 + timedelta(minutes=85), 35.6, "10:25 — the model slips in a worker who is not in the plan")
+        site.planner = None
 
         accepted, rejected = s1.get("planner", {}), s2.get("planner", {})
         return _demo_out(site, [s1, s2], "planner-guard",
@@ -986,7 +997,7 @@ def _demo_out(site: SiteRuntime, sweeps: list[dict], scenario: str, headline: st
     naive = _naive_baseline(sweeps)
     out = {
         "scenario": scenario, "headline": headline, "site": site.to_dict(), "sweeps": sweeps,
-        "ledger": site.ledger, "coverage": site.coverage(), "degraded": store.degraded[-10:],
+        "ledger": site.ledger, "coverage": site.coverage(), "degraded": list(store.degraded[-10:]),
         "presence": site.presence_record(),
         "scale": _scale_block(site, sweeps),
         "zones": _zone_block(site),
