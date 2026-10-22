@@ -1,6 +1,5 @@
 # =============================================================================
-#  MENA Ignite 2026 - HeatShield / NaC portfolio
-#  Repo root .gitignore  (Python + Windows)
+#  HeatShield — repository .gitignore (Python + Windows)
 # =============================================================================
 
 # --- SECRETS: real credentials. NEVER commit. ---------------------------------
@@ -100,18 +99,13 @@ nohup.out
 *.db
 
 # --- Live probe output: raw API captures may contain unmasked responses -------
-# The two reviewed, masked probe runs under _ortak/docs/live-probe/ are the
-# evidence we DO publish; every other/newer capture is ignored by default.
-# Re-check masking (has_key / phone_masked) before un-ignoring any new file.
-_ortak/docs/live-probe/*
-!_ortak/docs/live-probe/probe-20260817-103901.json
-!_ortak/docs/live-probe/probe-20260817-103901.md
-!_ortak/docs/live-probe/probe-20260822-084623.json
-!_ortak/docs/live-probe/probe-20260822-084623.md
+# Tools write masked output to evidence/. Review it (phone_masked, no keys)
+# before committing; raw captures are never committed.
 *probe-raw*.json
 *-unmasked.json
+tools/sink-log.jsonl
 
-# --- Local scratch / personal notes not meant for the jury --------------------
+# --- Local scratch / personal notes -------------------------------------------
 scratch/
 tmp/
 _local/

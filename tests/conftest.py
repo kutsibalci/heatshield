@@ -7,7 +7,6 @@ kota harcar, hatta anahtarsız makinede farklı sonuç verir.
 
 Testler dış dünyaya ÇIKMAZ. Bu dosya bunu garanti eder.
 """
-import os
 import sys
 from pathlib import Path
 

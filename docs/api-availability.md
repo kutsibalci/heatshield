@@ -23,5 +23,5 @@ scenario. Wiring a meteorological source is roadmap.
 Location Retrieval; a 1000 m uncertainty radius, which is the same order as a 500 m site perimeter — the reason the
 `PARTIAL` verdict exists in the rules.
 
-Reproduce with your own key: copy `.env.example` to `.env`, set `NAC_RAPIDAPI_KEY`, run `python tools/verify_live.py`.
+Reproduce with your own key: copy `.env.example` to `.env`, set `NAC_RAPIDAPI_KEY`, run `python tools/verify_live.py --mode live`.
 The script writes its report under `evidence/`.

@@ -19,7 +19,14 @@ ENV PYTHONUNBUFFERED=1 \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Only what the service runs. Tests, tools, evidence and docs stay out of the image.
+COPY apps ./apps
+COPY packages ./packages
+COPY fixtures ./fixtures
+
+# The service needs no write access and no root.
+RUN useradd --system --uid 10001 --no-create-home heatshield
+USER heatshield
 
 EXPOSE 7860
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \

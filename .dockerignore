@@ -1,11 +1,20 @@
+# The Dockerfile copies apps/, packages/ and fixtures/ explicitly; this keeps the build context small
+# and makes sure secrets and local environments never reach the daemon.
 .git
+.github
 .gitignore
 .pytest_cache
+.ruff_cache
 __pycache__
 **/__pycache__
 *.pyc
+.venv
+venv
 .env
 .env.*
 !.env.example
 *.log
-docs/*.pdf
+tests
+tools
+evidence
+docs

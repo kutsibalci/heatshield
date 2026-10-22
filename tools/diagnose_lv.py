@@ -13,23 +13,19 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "heatshield" / "packages"))
-
+from _common import evidence_file, load_env, require_live_flag  # noqa: E402  (depo kökü + paket yolu)
 from nac_client import NacClient, NacConfig, NacError  # noqa: E402
 from nac_client.privacy import normalize_phone  # noqa: E402
 
-OUT = Path(__file__).resolve().parent / f"lv-diagnosis-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.json"
+OUT = evidence_file("lv-diagnosis")
 
 
 def main() -> None:
-    for line in (ROOT / ".env").read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+    require_live_flag("Location Verification diagnosis against the live Nokia sandbox.")
+    if load_env() is None:
+        print(".env yok — canlı mod için gerekli.")
+        sys.exit(1)
     os.environ["NAC_MODE"] = "live"
 
     c = NacClient(NacConfig.from_env())
@@ -40,7 +36,7 @@ def main() -> None:
     print("HIPOTEZ 2 — cihaz tanimlayicisi")
     print(f"  .env ham deger      : {raw_phone[:6]}***{raw_phone[-4:]}  (uzunluk {len(raw_phone)})")
     print(f"  normalize edilmis   : {phone[:6]}***{phone[-4:]}  (uzunluk {len(phone)})")
-    print(f"  iki cagri ayni mi   : EVET — her ikisi de device.phoneNumber ile ayni normalize degeri gonderiyor")
+    print("  iki cagri ayni mi   : EVET — her ikisi de device.phoneNumber ile ayni normalize degeri gonderiyor")
 
     r = c.location_retrieve(phone, 3600)
     area = (r.data or {}).get("area") or {}

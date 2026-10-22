@@ -17,10 +17,9 @@ import logging
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "packages"), str(ROOT / "apps")]
+from _common import ROOT, evidence_file, require_live_flag
+from _common import load_env as _load_env
 logging.disable(logging.CRITICAL)
 
 UTC = timezone.utc
@@ -29,14 +28,7 @@ NOON = datetime(2026, 8, 17, 9, 0, tzinfo=UTC)
 
 
 def load_env() -> None:
-    for candidate in (ROOT / ".env", ROOT.parent / ".env"):
-        if candidate.exists():
-            for line in candidate.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip())
-            return
+    _load_env()
 
 
 class Facade:
@@ -48,6 +40,7 @@ class Facade:
 
 
 def main() -> None:
+    require_live_flag("Live planner run against Gemini / Groq.")
     load_env()
     os.environ["NAC_MODE"] = "fixture"          # Nokia kotasini harcama; olculen sey MODEL
     os.environ.setdefault("HS_PLANNER", "auto")
@@ -114,7 +107,7 @@ def main() -> None:
             print(f"    {wid}: {why}")
         print()
 
-    out = ROOT / "evidence" / f"live-planner-{datetime.now(UTC):%Y%m%d-%H%M%S}.json"
+    out = evidence_file("live-planner")
     out.write_text(json.dumps({
         "at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "planner": planner.name,

@@ -1,5 +1,7 @@
 # HeatShield
 
+[![CI](https://github.com/kutsibalci/heatshield/actions/workflows/ci.yml/badge.svg)](https://github.com/kutsibalci/heatshield/actions/workflows/ci.yml)
+
 **An autonomous heat-stress protection agent that uses the mobile network itself as the sensing layer.**
 
 > 🏆 **Top 10 finalist — GSMA MENA Ignite Hackathon 2026.** One of ten teams selected from 1,348
@@ -54,8 +56,8 @@ HeatShield does not establish identity, it measures exposure, and calling those 
 ## Running it
 
 ```bash
-python -m pip install -r requirements.txt
-python -m pytest -q                  # 180 tests
+python -m pip install -r requirements-dev.txt   # runtime + pytest + ruff
+python -m pytest -q                              # 194 tests
 ```
 
 Three modes, selected by `NAC_MODE`:
@@ -123,7 +125,7 @@ Detail: [`docs/architecture.md`](docs/architecture.md) · [`docs/api-availabilit
 [`docs/demo-script.md`](docs/demo-script.md)
 
 Tests: `tests/test_rules.py` · `tests/test_policy.py` · `tests/test_planner.py` · `tests/test_api.py` ·
-`tests/test_nac_client.py` · `tests/test_security.py` — **180 total** (parametrised cases included), all offline.
+`tests/test_nac_client.py` · `tests/test_security.py` · `tests/test_tools.py` — **194 total** (parametrised cases included), all offline.
 
 ## Why this is not the GSMA catalogue use case
 
@@ -185,7 +187,7 @@ statistic in this repository rests on live data. It is the first question we are
 and exit (`apps/api/main.py`). And `maxAge` is **mandatory** on Location Retrieval; without it the platform returns
 422. The freshness axis the cost ladder rides on is the platform's requirement, not our design preference.
 
-What is not in doubt: a working prototype runs today, offline, with 180 automated tests and six one-click demos.
+What is not in doubt: a working prototype runs today, offline, with 194 automated tests and six one-click demos.
 Nothing in this repository is claimed as live that is not. Raw probe output (credentials and MSISDN masked) is in
 [`evidence/probe-20260909-124244.json`](evidence/probe-20260909-124244.json), the
 Location Verification radius scan in

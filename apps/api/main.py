@@ -610,7 +610,7 @@ def add_worker(site_id: str, body: WorkerIn):
         try:
             return _add_worker(site, body).to_dict()
         except ValueError as e:
-            raise HTTPException(400, {"code": "INVALID_ARGUMENT", "message": str(e)})
+            raise HTTPException(400, {"code": "INVALID_ARGUMENT", "message": str(e)}) from e
 
 
 @app.post("/v1/sites/{site_id}/wbgt", dependencies=[Depends(require_api_token)])
