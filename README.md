@@ -126,7 +126,7 @@ Detail: [`docs/architecture.md`](docs/architecture.md) · [`docs/api-availabilit
 [`docs/demo-script.md`](docs/demo-script.md)
 
 Tests: `tests/test_rules.py` · `tests/test_policy.py` · `tests/test_planner.py` · `tests/test_api.py` ·
-`tests/test_nac_client.py` · `tests/test_security.py` · `tests/test_tools.py` — **197 total** (parametrised cases included), all offline.
+`tests/test_nac_client.py` · `tests/test_security.py` · `tests/test_tools.py` · `tests/test_verify_live.py` — **197 total** (parametrised cases included), all offline.
 
 ## Why this is not the GSMA catalogue use case
 
