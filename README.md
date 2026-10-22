@@ -50,8 +50,9 @@ All six are called by the prototype through a single entry point (`packages/nac_
 | **Location Retrieval** | Where to send the medic — **after escalation only**, once, coarsened to three decimals before it enters the ledger. The only API here that returns a coordinate, so the most tightly gated. |
 
 **Network Slicing** is a separate Nokia product on the roadmap. It is marked `# MOCK:` in `packages/agent/policy.py`
-and is **not** presented as live. Deliberately unused: SIM/Device Swap, the KYC family, Number Verification —
+and is **not** presented as live. Deliberately absent: SIM/Device Swap, the KYC family, Number Verification —
 HeatShield does not establish identity, it measures exposure, and calling those would violate data minimisation.
+The operator client contains only the calls the product makes.
 
 ## Running it
 
@@ -194,6 +195,11 @@ Location Verification radius scan in
 [`evidence/partial-scan-20260909-124602.json`](evidence/partial-scan-20260909-124602.json), and the
 endpoint-by-endpoint record in [`docs/api-availability.md`](docs/api-availability.md).
 
+The 9 Sep 2026 live probe in `evidence/` was run with `tools/verify_live.py` at tag
+[`v0.1-hackathon`](https://github.com/kutsibalci/heatshield/tree/v0.1-hackathon). That version also probed APIs
+the product never calls (KYC, SIM swap, number verification); those have since been removed from the codebase, so
+their results in the evidence file are historical. The probe can be re-run exactly from that tag.
+
 **On WBGT — and this is the biggest gap in the prototype.** The product does not measure WBGT, it consumes it.
 Today it consumes it **from outside**: the value is pushed in by `POST /v1/sites/{site_id}/wbgt` and the ledger
 records it as `source: meteorology-feed`. **No weather provider is integrated.** There is no code in this
@@ -309,7 +315,7 @@ modes need no credentials at all — the demos and the full test suite run with 
 ## Status and what comes next
 
 - **13 Sep 2026** — prototype submitted. **21 Sep 2026** — Demo Day: presented live to the jury as one of
-  ten finalists. Results pending.
+  ten finalists.
 - **Next, in this order:**
   1. Measure what Quality on Demand actually adds on the escalation path — the jury asked, and we have not
      measured it yet. Until then it stays what it is today: outside the verification budget and outside the

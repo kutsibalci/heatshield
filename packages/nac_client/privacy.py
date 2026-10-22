@@ -27,7 +27,7 @@ def normalize_phone(phone: str) -> str:
 
 
 def mask_phone(phone: str) -> str:
-    """+905551234567 -> +90555***4567 . The single format for logs and the UI."""
+    """+999991234567 -> +99999***4567 . The single format for logs and the UI."""
     try:
         p = normalize_phone(phone)
     except ValueError:

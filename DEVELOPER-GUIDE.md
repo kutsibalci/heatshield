@@ -63,9 +63,10 @@ nac.reachability("+99999000001000")
 nac.congestion_query("+99999000001000")
 nac.geofence_subscribe("+99999000001000", lat=25.38, lng=51.49, radius_m=500,
                        sink="https://example.com/webhooks/geofence", types=["org.camaraproject.geofencing-subscriptions.v0.area-entered"])
-nac.qod_create("+99999000001000", profile="QOS_E", duration_s=600, app_server_ipv4="203.0.113.10")
+nac.qod_create("+99999000001000", app_server_ipv4="203.0.113.10", qos_profile="QOS_E", duration_s=600)
 nac.location_retrieve("+99999000001000", max_age_s=60)   # after escalation only — the one call that returns a coordinate
 ```
 
-Deliberately unused: SIM/Device Swap, the KYC family, Number Verification. HeatShield measures exposure; it does not
-establish identity, and calling those would violate data minimisation.
+Deliberately absent: SIM/Device Swap, the KYC family, Number Verification. HeatShield measures exposure; it does not
+establish identity, and calling those would violate data minimisation — so the client does not contain them. The
+9 Sep 2026 probe that also tried them can be re-run exactly from tag `v0.1-hackathon`.
