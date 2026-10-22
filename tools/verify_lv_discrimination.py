@@ -1,14 +1,14 @@
-"""Location Verification sandbox'ta alanı gerçekten dikkate alıyor mu?
+"""Does Location Verification in the sandbox actually take the area into account?
 
-`measure_partial.py` 100 m - 5 km aralığında hep FALSE buldu. Bu betik uç durumları
-ölçüp KAYDA GEÇİRİR: cihazın kendi koordinatı etrafında 50 km ve 200 km, tamamen başka
-bir şehir, ve merkezi hafifçe kaydırılmış bir daire.
+`measure_partial.py` found FALSE throughout the 100 m - 5 km range. This script measures and
+RECORDS the edge cases: 50 km and 200 km around the device's own coordinate, a completely different
+city, and a circle with a slightly shifted centre.
 
-Hepsi FALSE dönerse sonuç şudur: sandbox'ta bu uç talep edilen alandan bağımsız cevap
-veriyor. Taşıma katmanı ve şema kanıtlanır, karar mantığı kanıtlanmaz — ve PARTIAL oranı
-orada ölçülemez.
+If all return FALSE, the conclusion is: in the sandbox this endpoint answers independently of the
+requested area. The transport layer and schema are proven, the decision logic is not — and the PARTIAL
+rate cannot be measured there.
 
-Çalıştırma (depo kökünden):  python tools/verify_lv_discrimination.py
+Run (from the repo root):  python tools/verify_lv_discrimination.py
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from _common import evidence_file, load_env, require_live_flag  # noqa: E402  (depo kökü + paket yolu)
+from _common import evidence_file, load_env, require_live_flag  # noqa: E402  (repo root + package path)
 from nac_client import NacClient, NacConfig, NacError  # noqa: E402
 
 OUT = evidence_file("lv-discrimination")
@@ -26,33 +26,33 @@ OUT = evidence_file("lv-discrimination")
 def main() -> None:
     require_live_flag("Does Location Verification discriminate by area? Live Nokia sandbox.")
     if load_env() is None:
-        print(".env yok — canlı mod için gerekli.")
+        print("No .env found — live mode needs one.")
         sys.exit(1)
     os.environ["NAC_MODE"] = "live"
 
     c = NacClient(NacConfig.from_env())
     phone = os.environ["NAC_PROBE_PHONE"]
 
-    # maxAge ZORUNLU — parametresiz cagri 422 donuyor. Bunu da kayda geciriyoruz.
+    # maxAge is MANDATORY — a call without it returns 422. We record this too.
     missing_max_age = None
     try:
         c.location_retrieve(phone)
-        missing_max_age = {"status": "200", "note": "maxAge parametresiz cagri BASARILI oldu"}
+        missing_max_age = {"status": "200", "note": "the call without maxAge SUCCEEDED"}
     except NacError as e:
-        missing_max_age = {"status": f"{e.kind}:{e.status}", "note": "maxAge parametresiz cagri REDDEDILDI"}
-    print(f"maxAge'siz Location Retrieval -> {missing_max_age['status']}")
+        missing_max_age = {"status": f"{e.kind}:{e.status}", "note": "the call without maxAge was REJECTED"}
+    print(f"Location Retrieval without maxAge -> {missing_max_age['status']}")
 
     r = c.location_retrieve(phone, 3600)
     area = (r.data or {}).get("area") or {}
     lat = area["center"]["latitude"]
     lng = area["center"]["longitude"]
-    print(f"cihazin konumu: ({lat}, {lng})  bildirilen belirsizlik: {area.get('radius')} m\n")
+    print(f"device position: ({lat}, {lng})  reported uncertainty: {area.get('radius')} m\n")
 
     cases = [
-        ("cihazin kendi konumu, 50 km", lat, lng, 50_000),
-        ("cihazin kendi konumu, 200 km", lat, lng, 200_000),
-        ("baska sehir (Doha), 500 m", 25.2854, 51.531, 500),
-        ("konum +0.001 derece kaydirilmis, 1 km", lat + 0.001, lng + 0.001, 1_000),
+        ("device's own position, 50 km", lat, lng, 50_000),
+        ("device's own position, 200 km", lat, lng, 200_000),
+        ("another city (Doha), 500 m", 25.2854, 51.531, 500),
+        ("position shifted +0.001 degrees, 1 km", lat + 0.001, lng + 0.001, 1_000),
     ]
     rows = []
     for label, la, ln, radius in cases:
@@ -70,7 +70,7 @@ def main() -> None:
 
     verdicts = {r_.get("result") for r_ in rows}
     discriminates = verdicts != {"FALSE"}
-    print(f"\nSONUC: uc alani dikkate aliyor mu? -> {'EVET' if discriminates else 'HAYIR (hepsi FALSE)'}")
+    print(f"\nRESULT: does the endpoint take the area into account? -> {'YES' if discriminates else 'NO (all FALSE)'}")
 
     OUT.write_text(json.dumps({
         "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -83,7 +83,7 @@ def main() -> None:
         "conclusion": ("Transport and schema proven; the verdict does not vary with the requested area, "
                        "so the decision logic is not proven and the PARTIAL rate cannot be measured here."),
     }, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"kayit: {OUT}")
+    print(f"saved: {OUT}")
 
 
 if __name__ == "__main__":

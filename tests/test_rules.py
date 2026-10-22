@@ -1,4 +1,4 @@
-"""HeatShield kural motoru testleri — saf fonksiyonlar (ağ yok, saat parametre)."""
+"""HeatShield rule engine tests — pure functions (no network, clock as a parameter)."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -8,13 +8,13 @@ from rules import heatshield as R
 
 CFG = Config()
 UTC = timezone.utc
-# 2026-08-17 09:00 UTC = 12:00 Doha (yaz yasağı 10:00–15:30 içinde)
+# 2026-08-17 09:00 UTC = 12:00 Doha (within the summer ban 10:00–15:30)
 NOON = datetime(2026, 8, 17, 9, 0, tzinfo=UTC)
 MORNING = datetime(2026, 8, 17, 3, 0, tzinfo=UTC)     # 06:00 Doha
-WINTER = datetime(2026, 1, 15, 9, 0, tzinfo=UTC)      # yaz yasağı dışı
+WINTER = datetime(2026, 1, 15, 9, 0, tzinfo=UTC)      # outside the summer ban
 
 
-# ------------------------------------------------------------------ 1) site durumu
+# ------------------------------------------------------------------ 1) site state
 def test_below_limit_outside_ban_is_not_breached():
     st = R.site_state(30.0, MORNING, QATAR, CFG)
     assert st["breached"] is False and st["level"] == "none" and st["severity"] == 0.0
@@ -52,7 +52,7 @@ def test_sweep_interval_tightens_with_severity():
     assert R.sweep_interval_minutes("severe", CFG) == 2
 
 
-# ------------------------------------------------------------------ 2) maruziyet skoru
+# ------------------------------------------------------------------ 2) exposure score
 def _worker(**kw):
     base = {"masked": "+99999***0001", "worker_id": "W-1", "last_signal_at": None, "first_day_on_site": None,
             "prior_incident": False, "shift": "day"}
@@ -87,7 +87,7 @@ def test_exposure_detail_explains_every_factor():
 
 
 def test_exposure_clock_starts_at_the_workers_own_entry():
-    """İhlal 12:00'de başladı, işçi 12:30'da girdi → 13:00'te maruziyeti 60 değil 30 dakika."""
+    """Breach started at 12:00, worker entered at 12:30 → at 13:00 their exposure is 30 minutes, not 60."""
     breach = NOON - timedelta(minutes=60)
     late = _worker(worker_id="W-LATE", entered_at=(NOON - timedelta(minutes=30)).isoformat(),
                    last_signal_at=(NOON - timedelta(minutes=30)).isoformat())
@@ -96,13 +96,13 @@ def test_exposure_clock_starts_at_the_workers_own_entry():
     _, late_min, src, _ = R.exposure_window(late, breach, NOON)
     _, early_min, early_src, _ = R.exposure_window(early, breach, NOON)
     assert late_min == 30 and src == "entered_at"
-    assert early_min == 60 and early_src == "breach_started_at"   # ihlalden önce sahadaydı
-    # aynı bayatlık + aynı kırılganlık: skor farkı yalnızca maruziyetten gelir
+    assert early_min == 60 and early_src == "breach_started_at"   # was on site before the breach
+    # same staleness + same vulnerability: the score difference comes only from exposure
     assert R.exposure_score(late, breach, NOON, CFG) == pytest.approx(R.exposure_score(early, breach, NOON, CFG) / 2)
 
 
 def test_missing_entry_signal_never_underestimates_exposure():
-    """Giriş anını bildiren alan yoksa ihlal başlangıcı kullanılır (temkinli taraf)."""
+    """If there is no field reporting the entry time, the breach start is used (the cautious side)."""
     breach = NOON - timedelta(minutes=45)
     start, minutes, src, why = R.exposure_window(_worker(last_signal_at=(NOON - timedelta(minutes=5)).isoformat()), breach, NOON)
     assert start == breach and minutes == 45 and src == "breach_started_at" and "cautious" in why
@@ -112,7 +112,7 @@ def test_missing_entry_signal_never_underestimates_exposure():
 
 
 def test_severity_stays_a_site_wide_factor():
-    """WBGT saha özelliğidir: aynı sahada iki işçinin severity'si aynı olmalı (tasarım gereği)."""
+    """WBGT is a site property: two workers on the same site must have the same severity (by design)."""
     b = NOON - timedelta(minutes=20)
     a1 = _worker(worker_id="W-A", entered_at=(NOON - timedelta(minutes=10)).isoformat())
     a2 = _worker(worker_id="W-B", prior_incident=True)
@@ -120,7 +120,7 @@ def test_severity_stays_a_site_wide_factor():
     assert sev == [2.4, 2.4]
 
 
-# ------------------------------------------------------------------ 3) doğrulama planı
+# ------------------------------------------------------------------ 3) verification plan
 def _cand(i, score, **kw):
     w = _worker(worker_id=f"W-{i:03d}", masked=f"+99999***{i:04d}", score=score)
     w.update(kw)
@@ -130,7 +130,7 @@ def _cand(i, score, **kw):
 def test_plan_spends_from_the_top_and_stops_at_budget():
     workers = [_cand(i, 100 - i) for i in range(1, 21)]
     plan = R.plan_verification(workers, 10, CFG, NOON)
-    assert len([a for a in plan if a.pool == "main"]) == 9   # 10 bütçe − 1 rezerv
+    assert len([a for a in plan if a.pool == "main"]) == 9   # 10 budget − 1 reserve
     assert [a.worker["worker_id"] for a in plan][:3] == ["W-001", "W-002", "W-003"]
     assert all(a.api == "location_verify" for a in plan)
 
@@ -154,15 +154,15 @@ def test_cleared_worker_is_dropped_from_the_queue():
 
 
 def test_equal_scores_are_broken_by_staleness_not_by_the_alphabet():
-    """Skorlar eşitlendiğinde sıra alfabetik telefona düşmemeli: en bayat sinyal önce."""
+    """When scores tie, the order must not fall back to alphabetical phone: stalest signal first."""
     fresh = _cand(1, 40.0, last_signal_at=(NOON - timedelta(minutes=2)).isoformat())    # +99999***0001
     stale = _cand(9, 40.0, last_signal_at=(NOON - timedelta(minutes=40)).isoformat())   # +99999***0009
-    never = _cand(5, 40.0, last_signal_at=None)                                          # hiç sinyal yok
+    never = _cand(5, 40.0, last_signal_at=None)                                          # no signal at all
     plan = R.plan_verification([fresh, stale, never], 10, CFG, NOON)
     assert [a.worker["worker_id"] for a in plan] == ["W-005", "W-009", "W-001"]
     tb = [e for e in plan[0].explain if e.signal == "tiebreak"]
     assert tb and tb[0].triggered and "alphabetical" in tb[0].note
-    # eşitlik yoksa tiebreak kaydı da yok (gereksiz gürültü üretmez)
+    # no tie means no tiebreak entry either (produces no needless noise)
     solo = R.plan_verification([_cand(1, 40.0), _cand(2, 10.0)], 10, CFG, NOON)
     assert not [e for a in solo for e in a.explain if e.signal == "tiebreak"]
 
@@ -172,10 +172,10 @@ def test_reserve_rechecks_presumed_safe_workers():
     safe = [_cand(90 + i, 0, last_signal_at=(NOON - timedelta(hours=i)).isoformat()) for i in range(1, 4)]
     plan = R.plan_verification(cands, 10, CFG, NOON, presumed_safe=safe)
     reserve = [a for a in plan if a.pool == "reserve"]
-    assert len(reserve) == 1 and reserve[0].worker["worker_id"] == "W-093"  # en bayat olan
+    assert len(reserve) == 1 and reserve[0].worker["worker_id"] == "W-093"  # the stalest one
 
 
-# ------------------------------------------------------------------ 4) bayılma vs pil
+# ------------------------------------------------------------------ 4) collapse vs battery
 def test_single_dark_device_with_reachable_neighbours_is_probable_collapse():
     r = R.classify_unreachable(_worker(vulnerability=2.0), 4, 0, "Low", {"continuous_reachable_hours": 8}, False, CFG)
     assert r["verdict"] == "probable_collapse" and r["confidence"] >= CFG.distress.collapse_min_confidence
@@ -220,19 +220,31 @@ def test_config_from_env_and_jurisdiction_switch(monkeypatch):
 
 
 def test_env_wbgt_limit_survives_a_jurisdiction_switch(monkeypatch):
-    """Her saha `with_jurisdiction()` üzerinden kurulur; ortamdaki eşik orada kaybolmamalı."""
+    """Every site is built via `with_jurisdiction()`; the threshold from the environment must not be lost there."""
     monkeypatch.setenv("HS_WBGT_LIMIT_C", "30.0")
     c = Config.from_env()
     assert c.with_jurisdiction("QA").jurisdiction.wbgt_limit_c == 30.0
     assert c.with_jurisdiction("SA").jurisdiction.wbgt_limit_c == 30.0
-    assert Config().with_jurisdiction("QA").jurisdiction.wbgt_limit_c == 32.1   # ortam yoksa yasal değer
+    assert Config().with_jurisdiction("QA").jurisdiction.wbgt_limit_c == 32.1   # statutory value if env unset
 
 
 def test_medic_coordinate_is_not_starved_by_unseen_workers():
-    """Eskalasyon sonrası koordinat sağlıkçının koşacağı yerdir; hiç sorgulanmamışların arkasında beklemez."""
+    """After escalation the coordinate is where the medic will run; it does not wait behind never-queried workers."""
     breach = NOON - timedelta(minutes=30)
     escalated = _cand(999, 1.0, escalated=True, last_verified_at=(NOON - timedelta(minutes=5)).isoformat())
     unseen = [_cand(i, 50) for i in range(1, 41)]
     plan = R.plan_verification(unseen + [escalated], 20, CFG, NOON, breach_started_at=breach)
     assert plan[0].api == "location_retrieve" and plan[0].worker["worker_id"] == "W-999"
-    assert len([a for a in plan if a.pool == "main"]) == 18          # bütçe yine aşılmaz
+    assert len([a for a in plan if a.pool == "main"]) == 18          # the budget is still not exceeded
+
+
+# ------------------------------------------------------------------ timeutil
+def test_one_timestamp_parser_for_the_whole_codebase():
+    from datetime import date
+    from rules.timeutil import iso_z, to_utc
+    assert to_utc(None) is None and to_utc("") is None
+    assert to_utc("2026-08-17T09:00:00Z") == NOON
+    assert to_utc("2026-08-17T12:00:00+03:00") == NOON
+    assert to_utc(datetime(2026, 8, 17, 9, 0)) == NOON                  # naive → UTC
+    assert to_utc(date(2026, 8, 17)) == datetime(2026, 8, 17, tzinfo=UTC)
+    assert iso_z(NOON) == "2026-08-17T09:00:00Z" and iso_z(None) is None

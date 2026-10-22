@@ -1,4 +1,4 @@
-"""Gizlilik yardımcıları: loglarda ve API çıktısında ham numara asla yer almaz."""
+"""Privacy helpers: raw numbers never appear in logs or in API output."""
 from __future__ import annotations
 
 import hashlib
@@ -9,25 +9,25 @@ import secrets
 
 _E164 = re.compile(r"^\+?[0-9]{8,15}$")
 
-# PHONE_HASH_SALT yoksa süreç başına RASTGELE bir tuz. Eskiden sabit "dev-salt-change-me" vardı:
-# depoda yazılı bir tuzla herkes bir numaranın hash'ini hesaplayıp eşleştirebilirdi. Rastgele tuz
-# süreç içinde kararlıdır (eşleştirme çalışır) ama yeniden başlatmada değişir; canlı mod bu yüzden
-# tuzu zorunlu tutar (bkz. api.main.missing_production_secrets).
+# Without PHONE_HASH_SALT, a RANDOM salt per process. Previously there was a fixed "dev-salt-change-me":
+# with a salt written in the repo, anyone could compute a number's hash and match it. The random salt
+# is stable within the process (matching works) but changes on restart; that is why live mode makes
+# the salt mandatory (see api.main.missing_production_secrets).
 _PROCESS_SALT = secrets.token_hex(32)
 
 
 def normalize_phone(phone: str) -> str:
-    """Boşluk/tire temizler, + ekler. Geçersizse ValueError."""
+    """Strips spaces/dashes, adds +. Raises ValueError if invalid."""
     p = re.sub(r"[\s\-\(\)]", "", phone or "")
     if p and not p.startswith("+"):
         p = "+" + p
     if not _E164.match(p):
-        raise ValueError("geçersiz telefon numarası biçimi")
+        raise ValueError("invalid phone number format")
     return p
 
 
 def mask_phone(phone: str) -> str:
-    """+905551234567 -> +90555***4567 . Log ve UI için tek biçim."""
+    """+905551234567 -> +90555***4567 . The single format for logs and the UI."""
     try:
         p = normalize_phone(phone)
     except ValueError:
@@ -38,9 +38,10 @@ def mask_phone(phone: str) -> str:
 
 
 def hash_phone(phone: str, salt: str | None = None) -> str:
-    """HMAC-SHA256 ile numarayı tek yönlü hash'ler. Salt env'den (PHONE_HASH_SALT) gelir.
+    """One-way hashes the number with HMAC-SHA256. The salt comes from env (PHONE_HASH_SALT).
 
-    Aynı numara aynı tenant'ta aynı hash'i üretir (batch eşleştirme için), ama hash'ten numaraya dönüş yok.
+    The same number yields the same hash within the same tenant (for batch matching), but there is no way
+    back from the hash to the number.
     """
     p = normalize_phone(phone)
     key = (salt if salt is not None else (os.environ.get("PHONE_HASH_SALT") or _PROCESS_SALT)).encode()
@@ -48,11 +49,11 @@ def hash_phone(phone: str, salt: str | None = None) -> str:
 
 
 class MaskingFilter:
-    """logging.Filter: kayıttaki E.164 numaraları maskeler."""
+    """logging.Filter: masks E.164 numbers in the log record."""
 
     _pat = re.compile(r"\+[0-9]{8,15}")
 
-    def filter(self, record):  # noqa: D401 - logging protokolü
+    def filter(self, record):  # noqa: D401 - logging protocol
         try:
             msg = record.getMessage()
             masked = self._pat.sub(lambda m: mask_phone(m.group(0)), msg)

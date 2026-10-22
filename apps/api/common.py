@@ -1,4 +1,5 @@
-"""Tüm projelerin API'sinde ortak: ayarlar, NacClient tekil örneği, fixture yedeği, demo statik dosyaları, debug uçları."""
+"""Shared by every project's API: settings, the NacClient singleton, fixture fallback, demo static files,
+debug endpoints."""
 from __future__ import annotations
 
 import logging
@@ -16,7 +17,7 @@ for p in (ROOT / "packages", ROOT / "apps"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-try:  # .env varsa yükle (opsiyonel bağımlılık)
+try:  # load .env if present (optional dependency)
     from dotenv import load_dotenv  # type: ignore
     load_dotenv(ROOT / ".env")
 except Exception:  # noqa: BLE001
@@ -35,15 +36,15 @@ FIXTURE_PATH = Path(os.environ.get("NAC_FIXTURE_PATH") or (ROOT / "fixtures" / "
 _PHONE_RE = re.compile(r"\+[0-9]{8,15}")
 
 
-# Debug panelinde ASLA duz metin gorunmemesi gereken alanlar. Bir gizlilik denetimi
-# `sinkCredential.accessToken`i `/v1/_debug/calls` yanitinda 106 kez duz metin buldu ve
-# saldiri zincirini dogruladi: token hasat edilip sahte geofence olayi uretilebiliyordu.
+# Fields that must NEVER appear in plain text in the debug panel. A privacy audit
+# found `sinkCredential.accessToken` in plain text 106 times in the `/v1/_debug/calls` response and
+# confirmed the attack chain: the token could be harvested and used to forge geofence events.
 _SECRET_KEYS = {"accesstoken", "authorization", "apikey", "x-rapidapi-key", "sinkcredential",
                 "credential", "password", "secret", "token", "bearer"}
 
 
 def _mask_deep(value):
-    """İç içe yapıdaki tüm E.164 numaraları VE kimlik bilgilerini maskeler (debug çıktısı için)."""
+    """Masks every E.164 number AND every credential in a nested structure (for debug output)."""
     if isinstance(value, dict):
         return {k: ("***redacted***" if str(k).lower() in _SECRET_KEYS else _mask_deep(v))
                 for k, v in value.items()}
@@ -55,10 +56,10 @@ def _mask_deep(value):
 
 
 def _coarse_profile(prof: dict) -> dict:
-    """Hata ayıklama görünümü için profil: konum 3 ondalığa (~110 m) kabalaştırılır.
+    """Profile for the debug view: the location is coarsened to 3 decimals (~110 m).
 
-    Ürünün kendi ilkesi "koordinat deftere kaba özet olarak yazılır" diyor; bir hata ayıklama
-    ucunun bundan daha ayrıntılı veri döndürmesi o ilkeyi anlamsız kılar.
+    The product's own principle says "a coordinate is written to the ledger as a coarse summary"; a debug
+    endpoint returning more detailed data than that would make the principle meaningless.
     """
     out = dict(prof)
     loc = out.get("location")
@@ -69,7 +70,7 @@ def _coarse_profile(prof: dict) -> dict:
 
 
 def build_nac() -> NacClient:
-    """NAC_MODE'a göre istemci. HTTP modlarında da fixture'ları yükler → API çökerse yedek."""
+    """Client according to NAC_MODE. Loads the fixtures in HTTP modes too → a fallback if the API goes down."""
     cfg = NacConfig.from_env()
     if not cfg.fixture_path:
         cfg.fixture_path = str(FIXTURE_PATH)
@@ -78,13 +79,13 @@ def build_nac() -> NacClient:
 
 
 class NacFacade:
-    """Karar motorunun kullandığı ince katman.
+    """The thin layer the decision engine uses.
 
-    Yedeğe düşme VARSAYILAN OLARAK KAPALIDIR. Operatör API'si düştüğünde fixture'dan uydurma
-    bir cevap üretmek, "API çöktü" ile "işçi bölge dışında" arasındaki farkı siler ve ürünün
-    güvenlik duruşuna ("hata asla 'güvende' hükmü üretmez") doğrudan aykırıdır.
-    Bilinçli olarak istenirse `NAC_FALLBACK_TO_FIXTURE=1` ile açılır; o durumda bile karar
-    katmanı `agent.policy._trusted()` ile bu cevapları güvenlik hükmü üretmekten alıkoyar.
+    Falling back is OFF BY DEFAULT. When the operator API goes down, producing a made-up answer from
+    fixtures erases the difference between "the API crashed" and "the worker is outside the zone", and
+    directly contradicts the product's safety stance ("an error never produces a 'safe' verdict").
+    If deliberately wanted it is enabled with `NAC_FALLBACK_TO_FIXTURE=1`; even then the decision
+    layer, via `agent.policy._trusted()`, keeps these answers from producing a safety verdict.
     """
 
     def __init__(self, nac: NacClient):
@@ -93,7 +94,8 @@ class NacFacade:
         self.fallback_enabled = os.environ.get("NAC_FALLBACK_TO_FIXTURE", "0") == "1"
 
     def call(self, name: str, *args, **kwargs):
-        """nac.<name>(*args) çağrısı; hata + yedek varsa fixture'dan döner ve source='fixture-fallback' işaretler."""
+        """Calls nac.<name>(*args); on error with a fallback available, returns from fixtures and
+        marks source='fixture-fallback'."""
         try:
             return getattr(self.nac, name)(*args, **kwargs)
         except NacError as e:
@@ -107,7 +109,7 @@ class NacFacade:
 def mount_common(app: FastAPI, nac: NacClient, web_dir: Path | None = None, debug_dependencies: list | None = None) -> None:
     web_dir = web_dir or (ROOT / "apps" / "web")
     r = APIRouter()
-    debug = APIRouter(dependencies=debug_dependencies or [])   # hata ayıklama uçları kişisel veri sayılır
+    debug = APIRouter(dependencies=debug_dependencies or [])   # debug endpoints count as personal data
 
     @r.get("/health")
     def health():
@@ -115,19 +117,19 @@ def mount_common(app: FastAPI, nac: NacClient, web_dir: Path | None = None, debu
 
     @debug.get("/v1/_debug/calls")
     def debug_calls(limit: int = 30):
-        # Debug paneli jüri ekranında açık kalır: istek gövdesi zaten maskeli, YANIT gövdesini de maskeliyoruz
-        # (device-status / QoD yanıtları `device.phoneNumber` alanını aynen geri döndürüyor).
+        # The debug panel stays open on the jury screen: the request body is already masked; we mask
+        # the RESPONSE body too (device-status / QoD responses echo the `device.phoneNumber` field back verbatim).
         return [_mask_deep(c.to_dict()) for c in nac.calls[-limit:]]
 
     @debug.get("/v1/_debug/profiles")
     def debug_profiles():
-        # Bu uç fixture profillerini gösterir ve jüri ekranında açık kalır. Kardeş ucu (`_debug/calls`)
-        # maskeliyordu, bu maskelemiyordu: bir gizlilik denetimi burada 27 ham numarayı ve her birinin
-        # koordinatını kimlik doğrulaması olmadan döktüğümüzü ölçtü. "Ham numara hiçbir yanıtta yer
-        # almaz" iddiamız tek GET ile çöküyordu.
+        # This endpoint shows the fixture profiles and stays open on the jury screen. Its sibling (`_debug/calls`)
+        # masked, this one did not: a privacy audit measured that we were dumping 27 raw numbers here, each with
+        # its coordinate, without authentication. Our claim "a raw number never appears in any
+        # response" collapsed with a single GET.
         #
-        # Anahtarlar da (telefon numaraları) maskelenir; içerideki `location` alanı ise kabalaştırılır —
-        # bu bir hata ayıklama görünümü, konum veritabanı değil.
+        # The keys (phone numbers) are masked too; the `location` field inside is coarsened —
+        # this is a debug view, not a location database.
         if not nac.fx:
             return {}
         return {mask_phone(p): _coarse_profile(prof) for p, prof in nac.fx.profiles.items()}

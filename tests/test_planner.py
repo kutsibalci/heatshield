@@ -1,10 +1,10 @@
-"""LLM planlayıcı testleri — modelin kuralların ALTINDA kaldığını KANITLAR.
+"""LLM planner tests — PROVE that the model stays BENEATH the rules.
 
-Bu dosyanın tamamı tek bir iddiayı test eder: model planı yeniden sıralayabilir, ama
-yeni işçi ekleyemez, API seçemez, bütçeyi aşamaz, tekrar üretemez. İhlal ederse öneri
-bütünüyle reddedilir ve kuralların sırası uygulanır.
+This whole file tests a single claim: the model may reorder the plan, but it
+cannot add new workers, choose APIs, exceed the budget, or produce duplicates. If it violates this, the proposal
+is rejected in its entirety and the rules' order is applied.
 
-Ağ yok: sağlayıcı çağrıları monkeypatch ile taklit edilir.
+No network: provider calls are faked with monkeypatch.
 """
 import json
 
@@ -23,7 +23,7 @@ PLAN = [_act("W-001", 1, score=30.0), _act("W-002", 2, score=20.0), _act("W-003"
 SNAP = {"wbgt_c": 35.6, "workers_in_plan": 3}
 
 
-# --------------------------------------------------------------------------- güvenlik kapısı
+# --------------------------------------------------------------------------- safety gate
 def test_guard_accepts_valid_reordering():
     out, v = LA.guard_plan(PLAN, ["W-003", "W-001", "W-002"])
     assert v["accepted"] is True and v["reordered"] is True
@@ -36,7 +36,7 @@ def test_guard_marks_unchanged_order_as_not_reordered():
 
 
 def test_guard_rejects_worker_the_rules_never_planned():
-    """Modelin plana yeni bir işçi sokması — en tehlikeli ihlal."""
+    """The model slipping a new worker into the plan — the most dangerous violation."""
     out, v = LA.guard_plan(PLAN, ["W-001", "W-999", "W-002"])
     assert out is None and v["accepted"] is False
     assert v["violation"] == "unknown_worker" and "W-999" in v["offending"]
@@ -53,33 +53,33 @@ def test_guard_rejects_empty_or_malformed_order():
 
 
 def test_guard_rejects_a_shortened_order():
-    """Kırpma YASAK. Bir işçiyi düşürmek onun hiç sorgulanmamasına, dolayısıyla hükmün hiç
-    doğmamasına yol açar — model hükmü değiştirmez, hükmün doğacağı sorguyu iptal eder."""
+    """Trimming is FORBIDDEN. Dropping a worker means they are never queried, and therefore the verdict is never
+    produced — the model does not change the verdict, it cancels the query the verdict would come from."""
     out, v = LA.guard_plan(PLAN, ["W-002", "W-001"])
     assert out is None and v["violation"] == "incomplete_order"
     assert "W-003" in v["offending"]
 
 
 def test_guard_never_lets_the_plan_grow():
-    """Bütçe zaten kurallarca kesildi; öneri plandan uzun olamaz."""
+    """The budget was already cut by the rules; the proposal cannot be longer than the plan."""
     out, v = LA.guard_plan(PLAN[:2], ["W-001", "W-002", "W-003"])
-    assert out is None and v["violation"] == "unknown_worker"  # üçüncü kimlik planda yok
+    assert out is None and v["violation"] == "unknown_worker"  # the third ID is not in the plan
 
 
 def test_guard_fails_closed_on_a_plan_with_duplicate_ids():
-    """Plan kimlikleri belirsizse modele hiç güvenilmez — sessiz kayıp yerine açık ret."""
+    """If plan IDs are ambiguous the model is not trusted at all — explicit rejection instead of silent loss."""
     out, v = LA.guard_plan([_act("W-001", 1), _act("W-001", 2, api="reachability")], ["W-001"])
     assert out is None and v["violation"] == "ambiguous_plan"
 
 
-# --------------------------------------------------------------------------- kural planlayıcı
+# --------------------------------------------------------------------------- rules planner
 def test_rules_planner_is_passthrough():
     p = LA.RulesPlanner()
     assert p.propose(SNAP, PLAN) == PLAN
     assert p.last_verdict()["used"] is False
 
 
-# --------------------------------------------------------------------------- LLM planlayıcı
+# --------------------------------------------------------------------------- LLM planner
 def _fake_provider(monkeypatch, payload: str | Exception):
     def _call(self, prompt):
         if isinstance(payload, Exception):
@@ -103,17 +103,17 @@ def test_llm_reordering_is_applied_when_it_passes_the_guard(monkeypatch):
 
 
 def test_injected_worker_is_rejected_and_rules_order_survives(monkeypatch):
-    """Model plana olmayan bir işçi soktu → öneri BÜTÜNÜYLE düşer, kurallar geçerli kalır."""
+    """The model slipped a nonexistent worker into the plan → the proposal is dropped ENTIRELY, the rules stand."""
     _fake_provider(monkeypatch, json.dumps({"order": [{"id": "W-404"}, {"id": "W-001"}]}))
     p = LA.LLMPlanner("gemini", "test-key")
     out = p.propose(SNAP, PLAN)
     v = p.last_verdict()
     assert v["used"] is False and v["violation"] == "unknown_worker"
-    assert out == PLAN                      # kuralların sırası aynen duruyor
+    assert out == PLAN                      # the rules' order stays exactly as is
 
 
 def test_model_failure_falls_back_to_rules_silently(monkeypatch):
-    """Zaman aşımı / kota / ağ hatası ürünü durdurmaz, yalnızca sıralamayı kurallara bırakır."""
+    """A timeout / quota / network error does not stop the product; it only leaves the ordering to the rules."""
     _fake_provider(monkeypatch, RuntimeError("timeout"))
     p = LA.LLMPlanner("gemini", "test-key")
     assert p.propose(SNAP, PLAN) == PLAN
@@ -121,22 +121,22 @@ def test_model_failure_falls_back_to_rules_silently(monkeypatch):
 
 
 def test_malformed_json_falls_back_to_rules(monkeypatch):
-    _fake_provider(monkeypatch, "bu JSON degil")
+    _fake_provider(monkeypatch, "this is not JSON")
     p = LA.LLMPlanner("gemini", "test-key")
     assert p.propose(SNAP, PLAN) == PLAN
     assert p.last_verdict()["used"] is False
 
 
 def test_single_action_plan_is_not_sent_to_the_model(monkeypatch):
-    """Sıralanacak tek şey varsa model çağrılmaz — boşuna gecikme ve maliyet olmaz."""
+    """If there is only one thing to order, the model is not called — no pointless latency or cost."""
     def _boom(self, prompt):
-        raise AssertionError("model çağrılmamalıydı")
+        raise AssertionError("the model should not have been called")
     monkeypatch.setattr(LA.LLMPlanner, "_call_gemini", _boom)
     p = LA.LLMPlanner("gemini", "test-key")
     assert p.propose(SNAP, PLAN[:1]) == PLAN[:1]
 
 
-# --------------------------------------------------------------------------- seçim
+# --------------------------------------------------------------------------- selection
 def test_no_key_means_deterministic_rules(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
@@ -160,9 +160,9 @@ def test_auto_picks_whichever_key_exists(monkeypatch, env, provider):
     assert isinstance(p, LA.LLMPlanner) and p.provider == provider
 
 
-# --------------------------------------------------------------------------- uçtan uca: sansür imkânsız
+# --------------------------------------------------------------------------- end to end: censorship impossible
 def _sweep_with_model(fake_call, wbgt=35.6):
-    """Sahte bir sağlayıcıyla gerçek tarama motorunu çalıştırır; (rapor, saha) döner."""
+    """Runs the real sweep engine with a fake provider; returns (report, site)."""
     import os
     from datetime import datetime, timedelta, timezone
 
@@ -194,7 +194,7 @@ def _sweep_with_model(fake_call, wbgt=35.6):
 
 
 def test_model_cannot_shorten_the_plan_end_to_end():
-    """Denetimde bulunan asıl açık: model tek işçi döndürürse plan kısalmamalı, öneri düşmeli."""
+    """The main hole found in the audit: if the model returns one worker, the plan must not shrink; drop the proposal."""
     def only_one(_self, prompt):
         first = json.loads(prompt)["plan"][0]["id"]
         return json.dumps({"order": [{"id": first, "why": "only this one matters"}]})
@@ -202,16 +202,16 @@ def test_model_cannot_shorten_the_plan_end_to_end():
     r, site = _sweep_with_model(only_one)
     v = r["planner"]
     assert v["used"] is False and v["violation"] == "incomplete_order"
-    assert v["order_before"] == v["order_after"]          # kuralların sırası aynen yürüdü
-    assert len(r["plan"]) == len(v["order_before"])       # plan kısalmadı
+    assert v["order_before"] == v["order_after"]          # the rules' order ran unchanged
+    assert len(r["plan"]) == len(v["order_before"])       # the plan did not shrink
     assert any(e["event"] == "planner_rejected" for e in site.ledger)
 
 
 def test_prompt_injection_in_micro_zone_cannot_change_plan_membership():
-    """İşveren serbest metnine talimat yazsa ve model uysa bile kapı üyeliği korur."""
+    """Even if the employer writes instructions into free text and the model obeys, the gate protects membership."""
     def obey_injection(_self, prompt):
         ids = [i["id"] for i in json.loads(prompt)["plan"]]
-        return json.dumps({"order": [{"id": i} for i in ids[2:]]})   # ilk ikisini "gizle"
+        return json.dumps({"order": [{"id": i} for i in ids[2:]]})   # "hide" the first two
 
     r, _ = _sweep_with_model(obey_injection)
     assert r["planner"]["used"] is False and r["planner"]["violation"] == "incomplete_order"
@@ -247,8 +247,8 @@ def test_reordering_does_not_change_how_much_budget_is_spent():
 
 
 def test_demo_restores_the_live_planner_environment():
-    """Demo taklit sağlayıcı kullanır. Bittiğinde canlı planlayıcı AYNEN geri gelmeli —
-    jüri demoya bastı diye süreç boyunca gerçek Gemini ölmemeli."""
+    """The demo uses a fake provider. When it finishes the live planner must come back EXACTLY —
+    the real Gemini must not die for the rest of the process just because a judge clicked the demo."""
     import os
 
     from fastapi.testclient import TestClient
@@ -268,7 +268,7 @@ def test_demo_restores_the_live_planner_environment():
 
         assert {k: os.environ.get(k) for k in keys} == before
         P.reset_planner()
-        assert isinstance(LA.get_planner(), LA.LLMPlanner)     # canlı planlayıcı hâlâ ayakta
+        assert isinstance(LA.get_planner(), LA.LLMPlanner)     # the live planner is still up
     finally:
         for k, v in saved.items():
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)

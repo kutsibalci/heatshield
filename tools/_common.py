@@ -1,8 +1,8 @@
-"""Araçların ortak başlangıcı: depo kökü, paket yolu, .env ve kanıt klasörü.
+"""Shared start-up for the tools: repo root, package path, .env and the evidence folder.
 
-Eskiden her araç kendi `.env` okuyucusunu taşıyordu ve üçü yolu depo klasörünün ADINA bağlı
-kuruyordu — depo başka bir adla klonlanınca kırılıyordu, çıktılarını da `evidence/` yerine
-`tools/` altına yazıyordu.
+Previously every tool carried its own `.env` reader, and three of them built the path tied to the
+repo folder's NAME — they broke when the repo was cloned under another name, and they wrote their
+output under `tools/` instead of `evidence/`.
 """
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ for _p in (ROOT / "apps", ROOT / "packages"):
 
 
 def require_live_flag(what: str) -> None:
-    """Canlı API'ye giden araçlar yalnızca açık `--live` bayrağıyla çalışır.
+    """Tools that hit a live API run only with an explicit `--live` flag.
 
-    `.env` bulunursa araç gerçek anahtarla gerçek çağrı yapar ve kota harcar. Bir "deneme
-    çalıştırması" bunu fark etmeden yapabiliyordu; bayrak olmadan hiçbir şey okunmaz, çağrılmaz.
+    If a `.env` is found, the tool makes real calls with the real key and spends quota. A "trial
+    run" could do this without noticing; without the flag, nothing is read and nothing is called.
     """
     if "--live" not in sys.argv[1:]:
         print(f"{what}\nThis tool calls a live API and spends quota. Re-run with --live to proceed.")
@@ -29,7 +29,7 @@ def require_live_flag(what: str) -> None:
 
 
 def load_env() -> Path | None:
-    """Depodaki `.env`'i (yoksa bir üst klasördekini) yükler; kabukta tanımlı değerler kazanır."""
+    """Loads the repo's `.env` (or, if absent, the one in the parent folder); values set in the shell win."""
     from dotenv import load_dotenv
 
     for candidate in (ROOT / ".env", ROOT.parent / ".env"):
@@ -40,6 +40,6 @@ def load_env() -> Path | None:
 
 
 def evidence_file(prefix: str, suffix: str = "json") -> Path:
-    """`evidence/<prefix>-YYYYmmdd-HHMMSS.<suffix>` — araçların çıktısı düzenlenmeden buraya yazılır."""
+    """`evidence/<prefix>-YYYYmmdd-HHMMSS.<suffix>` — tool output is written here unedited."""
     EVIDENCE.mkdir(exist_ok=True)
     return EVIDENCE / f"{prefix}-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.{suffix}"

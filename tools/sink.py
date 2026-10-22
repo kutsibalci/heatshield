@@ -1,15 +1,15 @@
-"""Canlı abonelik denemesi için minimal webhook alıcısı.
+"""Minimal webhook receiver for the live subscription trial.
 
-Nokia'ya abonelik açarken halka açık bir HTTPS sink adresi vermek zorundayız. Bu sunucu her
-yolu ve her metodu kabul eder, gelen her isteği hem ekrana hem `sink-log.jsonl` dosyasına yazar.
-Amaç iki şeyi kanıtlamak:
-  1. Abonelik gerçek platformda oluşturulabiliyor mu (sink adresi kabul ediliyor mu),
-  2. Nokia herhangi bir bildirim gönderiyorsa gövdesi tam olarak neye benziyor.
+When opening a subscription with Nokia we have to provide a public HTTPS sink address. This server
+accepts every path and every method, and writes each incoming request both to the screen and to the
+`sink-log.jsonl` file. The goal is to prove two things:
+  1. Whether a subscription can be created on the real platform (whether the sink address is accepted),
+  2. If Nokia sends any notification, exactly what its body looks like.
 
-Sadece stdlib kullanır — bağımlılık yok, hiçbir şeyle çakışmaz.
+Uses only the stdlib — no dependencies, conflicts with nothing.
 
-Çalıştırma:   python tools/sink.py 8020
-Sonra:        ngrok http 8020
+Run:          python tools/sink.py 8020
+Then:         ngrok http 8020
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ _PHONE_KEYS = ("phoneNumber", "phone", "msisdn")
 
 
 def _mask(value):
-    """Ham numarayı hiçbir yere yazmayız — log dosyası da dahil."""
+    """We never write the raw number anywhere — the log file included."""
     if isinstance(value, dict):
         return {k: ("+" + "*" * 8 + str(v)[-4:] if k in _PHONE_KEYS and isinstance(v, str) else _mask(v))
                 for k, v in value.items()}
@@ -48,7 +48,7 @@ class Sink(BaseHTTPRequestHandler):
             "t": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "method": method,
             "path": self.path,
-            # Authorization başlığını KAYDETMEYİZ; yalnızca var mı yok mu.
+            # We do NOT RECORD the Authorization header; only whether it is present.
             "has_authorization": "Authorization" in self.headers,
             "content_type": self.headers.get("Content-Type"),
             "body": _mask(body),
@@ -61,8 +61,8 @@ class Sink(BaseHTTPRequestHandler):
         if isinstance(body, dict):
             print("   " + json.dumps(_mask(body), ensure_ascii=False)[:600], flush=True)
 
-        # CloudEvents doğrulama isteği (abort/validation) da dahil her şeye 204 döneriz:
-        # bilinmeyen bir tipe 4xx dönmek operatörün aboneliği düşürmesine yol açabilir.
+        # We return 204 to everything, including the CloudEvents validation request (abort/validation):
+        # returning 4xx to an unknown type could lead the operator to drop the subscription.
         self.send_response(204)
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -77,14 +77,14 @@ class Sink(BaseHTTPRequestHandler):
         self._handle("PUT")
 
     def log_message(self, *_args):
-        pass          # kendi çıktımızı kullanıyoruz
+        pass          # we use our own output
 
 
 def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8020
-    print(f"Sink dinliyor: http://127.0.0.1:{port}  (her yol, her metod → 204)")
-    print(f"Kayit dosyasi: {LOG}")
-    print("Simdi ayri bir terminalde:  ngrok http", port)
+    print(f"Sink listening: http://127.0.0.1:{port}  (any path, any method → 204)")
+    print(f"Log file: {LOG}")
+    print("Now, in a separate terminal:  ngrok http", port)
     ThreadingHTTPServer(("127.0.0.1", port), Sink).serve_forever()
 
 

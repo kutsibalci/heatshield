@@ -1,14 +1,14 @@
-"""nac_client — Nokia Network as Code sarmalayıcı.
+"""nac_client — Nokia Network as Code wrapper.
 
-Tek giriş noktası. Nokia API çağrıları bu paketin dışından ASLA doğrudan yapılmaz.
+Single entry point. Nokia API calls are NEVER made directly from outside this package.
 
-Özellikler:
-- Gerçek endpoint path'leri (SDK v10.0.0'dan doğrulandı — docs/nac-api-reference.md)
-- İki katmanlı auth: x-rapidapi-key + (passthrough API'lerde) Bearer OAuth2 token
+Features:
+- Real endpoint paths (verified against SDK v10.0.0 — docs/nac-api-reference.md)
+- Two-layer auth: x-rapidapi-key + (on passthrough APIs) a Bearer OAuth2 token
 - Timeout + retry + circuit breaker (resilience.py)
-- Hata normalizasyonu (errors.py)
-- Telefon maskeleme / hash (privacy.py) — loglarda ham numara yok
-- Üç mod: fixture (in-memory), simulator (yerel mock HTTP), live (RapidAPI)
+- Error normalization (errors.py)
+- Phone masking / hashing (privacy.py) — no raw numbers in logs
+- Three modes: fixture (in-memory), simulator (local mock HTTP), live (RapidAPI)
 """
 from .client import NacClient, NacConfig, NacResult
 from .errors import NacError, NacCircuitOpen, NacTimeout

@@ -6,7 +6,12 @@ in [docs/architecture.md](docs/architecture.md).
 ## Layout
 
 ```
-apps/api/main.py        FastAPI service: routes, Scheduler, webhook sink, six demo scenarios
+apps/api/main.py        the FastAPI app: lifespan, security headers, site/worker/sweep routes, webhook sink
+apps/api/security.py    tokens (HS_API_TOKEN, WEBHOOK_TOKEN), access dependencies, rate limiter
+apps/api/runtime.py     configuration, demo roster, operator client, store (locking rules), site/worker setup
+apps/api/models.py      request bodies, every field bounded
+apps/api/scheduler.py   the agent's own clock (sweep_due per site)
+apps/api/demo.py        the six one-click scenarios (HS_DEMO_MODE=1 only) and their report blocks
 apps/api/common.py      masking of secrets and phone numbers in every response, shared facade
 apps/web/               the console (index.html, base.js, base.css) — no build step, no CDN
 apps/simulator/         a local mock that serves the real CAMARA paths (NAC_MODE=simulator)
@@ -16,7 +21,7 @@ packages/agent/         SiteRuntime / WorkerRuntime state machine, sweep executi
 packages/nac_client/    the single entry point to Nokia Network as Code: auth, retry, circuit breaker, masking,
                         fixture / simulator / live backends
 fixtures/profiles.json  device profiles the fixture backend answers from (all numbers +99999…, none real)
-tests/                  194 tests, offline by construction (conftest.py strips every key from the environment)
+tests/                  197 tests, offline by construction (conftest.py strips every key from the environment)
 tools/                  live probes and measurements (need an explicit --live); output lands unaltered in evidence/
 evidence/               machine-generated proof for every "verified live" claim
 ```
@@ -38,7 +43,7 @@ evidence/               machine-generated proof for every "verified live" claim
 
 ```bash
 python -m pip install -r requirements-dev.txt
-python -m pytest -q                                   # 194 tests, ~75 s, no network
+python -m pytest -q                                   # 197 tests, ~75 s, no network
 python -m ruff check .                                # correctness lint, the same check CI runs
 HS_DEMO_MODE=1 python -m uvicorn apps.api.main:app --port 8000   # fixture mode → http://127.0.0.1:8000/demo
 NAC_MODE=simulator ./run.sh simulator                 # mock operator on :8081 with the real CAMARA paths

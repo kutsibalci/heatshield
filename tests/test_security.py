@@ -1,4 +1,4 @@
-"""Güvenlik temeli (faz 3): kimlik doğrulama, demo modu, girdi sınırları, varsayılan sırlar, başlıklar."""
+"""Security foundation (phase 3): authentication, demo mode, input limits, default secrets, headers."""
 import hashlib
 import hmac
 
@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import api.main as m
+from api import security
 from nac_client.privacy import hash_phone
 
 API = {"Authorization": "Bearer test-api-token"}
@@ -14,10 +15,10 @@ HOOK = {"Authorization": "Bearer test-token"}
 
 @pytest.fixture
 def anon(monkeypatch):
-    """Kimliksiz istemci. Demo modu varsayılan olarak AÇIK (conftest); testler gerektiğinde kapatır."""
+    """Unauthenticated client. Demo mode is ON by default (conftest); tests turn it off when needed."""
     m.store.reset()
-    monkeypatch.setattr(m, "API_TOKEN", "test-api-token")
-    monkeypatch.setattr(m, "WEBHOOK_TOKEN", "test-token")
+    monkeypatch.setattr(security, "API_TOKEN", "test-api-token")
+    monkeypatch.setattr(security, "WEBHOOK_TOKEN", "test-token")
     m.DEMO_LIMITER.reset()
     return TestClient(m.app)
 
@@ -28,7 +29,7 @@ def _site(c):
     return r.json()["site_id"]
 
 
-# ------------------------------------------------------------------ yazma uçları
+# ------------------------------------------------------------------ write endpoints
 @pytest.mark.parametrize("path,body", [
     ("/v1/sites", {"name": "X"}),
     ("/v1/sites/{sid}/workers", {"worker_id": "W-1", "phone": "+99999910001"}),
@@ -41,11 +42,11 @@ def test_every_write_needs_the_api_token(anon, path, body):
     url = path.format(sid=sid)
     assert anon.post(url, json=body).status_code == 401
     assert anon.post(url, json=body, headers={"Authorization": "Bearer wrong"}).status_code == 401
-    assert anon.post(url, json=body, headers=HOOK).status_code == 401      # webhook anahtarı yönetici değildir
+    assert anon.post(url, json=body, headers=HOOK).status_code == 401      # the webhook key is not an admin
     assert anon.post(url, json=body, headers=API).status_code in (200, 201)
 
 
-# ------------------------------------------------------------------ okuma uçları (kişisel veri)
+# ------------------------------------------------------------------ read endpoints (personal data)
 PII_READS = ["/v1/state", "/v1/sites", "/v1/sites/{sid}", "/v1/sites/{sid}/ledger", "/v1/_debug/calls", "/v1/_debug/profiles"]
 
 
@@ -73,12 +74,12 @@ def test_the_console_endpoints_stay_public(anon, monkeypatch):
         assert anon.get(path).status_code == 200, path
 
 
-# ------------------------------------------------------------------ demo modu
+# ------------------------------------------------------------------ demo mode
 def test_demo_endpoints_are_off_unless_demo_mode_is_on(anon, monkeypatch):
     monkeypatch.delenv("HS_DEMO_MODE", raising=False)
     sid = _site(anon)
     assert anon.post("/v1/demo/no-breach").status_code == 404
-    assert sid in m.store.sites, "kapalı demo ucu mağazayı silmemeli"
+    assert sid in m.store.sites, "a disabled demo endpoint must not wipe the store"
     monkeypatch.setenv("HS_DEMO_MODE", "1")
     assert anon.post("/v1/demo/no-breach").status_code == 200
 
@@ -96,7 +97,7 @@ def test_demo_endpoints_are_rate_limited(anon, monkeypatch):
     assert r.status_code == 429 and r.headers.get("retry-after")
 
 
-# ------------------------------------------------------------------ girdi sınırları
+# ------------------------------------------------------------------ input limits
 @pytest.mark.parametrize("value", [-500, 99.0, float("nan")])
 def test_implausible_wbgt_is_rejected(anon, value):
     sid = _site(anon)
@@ -113,13 +114,15 @@ def test_worker_text_fields_are_bounded(anon):
     assert r.status_code == 422
 
 
-# ------------------------------------------------------------------ varsayılan sırlar
+# ------------------------------------------------------------------ default secrets
 def test_no_public_default_secrets(monkeypatch):
     monkeypatch.delenv("PHONE_HASH_SALT", raising=False)
     known = hmac.new(b"dev-salt-change-me", b"+99999910001", hashlib.sha256).hexdigest()
     assert hash_phone("+99999910001") != known
-    assert hash_phone("+99999910001") == hash_phone("+99999910001")   # süreç içinde kararlı
-    assert "heatshield-dev-token" not in open(m.__file__, encoding="utf-8").read()
+    assert hash_phone("+99999910001") == hash_phone("+99999910001")   # stable within the process
+    from pathlib import Path
+    for source in Path(m.__file__).parent.glob("*.py"):
+        assert "heatshield-dev-token" not in source.read_text(encoding="utf-8"), source.name
 
 
 def test_live_mode_refuses_to_start_without_its_secrets():
@@ -130,7 +133,7 @@ def test_live_mode_refuses_to_start_without_its_secrets():
     assert m.missing_production_secrets("fixture", {}) == []
 
 
-# ------------------------------------------------------------------ başlıklar ve sağlayıcılar
+# ------------------------------------------------------------------ headers and providers
 def test_security_headers_are_set(anon):
     r = anon.get("/demo")
     assert r.headers["x-content-type-options"] == "nosniff"
@@ -173,8 +176,8 @@ def test_simulator_only_delivers_to_local_sinks(monkeypatch):
 
 
 def test_simulator_sends_the_sink_credential_back_as_bearer(monkeypatch):
-    """CAMARA: bildirim, abonelikte verilen accessToken ile gelir. Simülatör onu göndermiyordu;
-    token isteyen webhook ucumuz simülatör olaylarını 401 ile reddediyordu."""
+    """CAMARA: the notification arrives with the accessToken given in the subscription. The simulator was not
+    sending it; our token-requiring webhook endpoint was rejecting simulator events with 401."""
     import simulator.main as sim
     c = TestClient(sim.app)
     sub = c.post("/geofencing-subscriptions/v0.3/subscriptions", json={

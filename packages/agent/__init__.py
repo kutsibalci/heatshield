@@ -1,15 +1,15 @@
-"""agent — HeatShield ajan politikası (durum makinesi + doğrulama bütçesi + LLM planlayıcı).
+"""agent — HeatShield agent policy (state machine + verification budget + LLM planner).
 
-İki katman, ve sırası önemli:
+Two layers, and their order matters:
 
-  KURALLAR (packages/rules)  — deterministik saf fonksiyonlar. Eşik, skor, bütçe, hüküm.
-                               Test edilebilir, açıklanabilir, öngörülebilir.
-  MODEL (llm_adapter.py)     — kuralların ürettiği planı yalnızca YENİDEN SIRALAMAYI önerir.
-                               Yeni işçi ekleyemez, API seçemez, bütçeyi aşamaz, hüküm bozamaz.
-                               Önerisi `guard_plan()` kapısından geçmezse bütünüyle düşer.
+  RULES (packages/rules)     — deterministic pure functions. Threshold, score, budget, verdict.
+                               Testable, explainable, predictable.
+  MODEL (llm_adapter.py)     — only proposes a RE-ORDERING of the plan the rules produced.
+                               It cannot add a worker, pick an API, exceed the budget or overturn a verdict.
+                               If its proposal does not pass the `guard_plan()` gate it is dropped entirely.
 
-Anahtar yoksa model devre dışıdır ve sistem tamamen deterministik çalışır — model bir
-iyileştirmedir, bağımlılık değil. Her iki durumda da karar kanıt defterinde görünür.
+Without a key the model is disabled and the system runs fully deterministically — the model is an
+improvement, not a dependency. In both cases the decision is visible in the evidence ledger.
 """
 from .llm_adapter import ChainPlanner, LLMPlanner, RulesPlanner, get_planner, guard_plan
 from .policy import SiteRuntime, WorkerRuntime, apply_geofence_event, new_worker, reset_planner, step, sweep_due, STATES

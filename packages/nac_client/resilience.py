@@ -1,4 +1,4 @@
-"""Timeout + retry + circuit breaker. Ağ API'si yavaşsa ürün kilitlenmez."""
+"""Timeout + retry + circuit breaker. If the network API is slow, the product does not lock up."""
 from __future__ import annotations
 
 import random
@@ -17,22 +17,22 @@ class CircuitState:
     failures: int = 0
     opened_at: float | None = None
     half_open: bool = False
-    probe_at: float | None = None      # yari acik denemenin basladigi an
+    probe_at: float | None = None      # moment the half-open probe started
 
 
-# Girdiye ozgu hatalar (hatali numara, bilinmeyen cihaz) bir KESINTI degildir: tek bir bozuk kayit
-# devreyi acip herkesi kor etmemeli. Servis cevap verdi — bu, ayakta oldugunun kanitidir.
+# Input-specific errors (bad number, unknown device) are NOT an OUTAGE: a single broken record
+# must not open the circuit and blind everyone. The service answered — that is proof it is up.
 INPUT_ERROR_KINDS = frozenset({"bad_request", "not_found"})
 
 
 @dataclass
 class CircuitBreaker:
-    """API adı başına devre kesici.
+    """Circuit breaker per API name.
 
-    failure_threshold ardışık hatadan sonra devre açılır; cooldown_s boyunca çağrılar anında NacCircuitOpen fırlatır.
-    Süre dolunca TEK bir deneme (half-open) geçer; o sonuçlanana kadar diğer çağrılar beklemez, reddedilir.
-    Başarılıysa devre kapanır, başarısızsa yeniden açılır. Deneme hiç sonuçlanmazsa (beklenmedik bir
-    istisna) bir cooldown sonra yeni bir denemeye izin verilir — devre sonsuza kadar kilitli kalmaz.
+    The circuit opens after failure_threshold consecutive failures; for cooldown_s, calls raise NacCircuitOpen at once.
+    When the time is up, a SINGLE probe (half-open) goes through; until it resolves, other calls do not wait, they are
+    rejected. If it succeeds the circuit closes; if it fails it reopens. If the probe never resolves (an unexpected
+    exception), a new probe is allowed after one cooldown — the circuit does not stay locked forever.
     """
 
     failure_threshold: int = 3
@@ -51,12 +51,12 @@ class CircuitBreaker:
             now = time.monotonic()
             if st.half_open:
                 if st.probe_at is not None and now - st.probe_at >= self.cooldown_s:
-                    st.probe_at = now      # takili kalmis deneme: yenisine izin ver
+                    st.probe_at = now      # stuck probe: allow a new one
                     return
                 raise NacCircuitOpen(api, self.cooldown_s - (now - (st.probe_at or now)))
             elapsed = now - st.opened_at
             if elapsed >= self.cooldown_s:
-                st.half_open, st.probe_at = True, now  # tek deneme izni
+                st.half_open, st.probe_at = True, now  # allow a single probe
                 return
             raise NacCircuitOpen(api, self.cooldown_s - elapsed)
 
@@ -88,7 +88,7 @@ def with_retry(
     backoff_s: float = 0.2,
     breaker: CircuitBreaker | None = None,
 ) -> T:
-    """fn'i retryable hatalarda tekrar dener; breaker'ı günceller."""
+    """Retries fn on retryable errors; updates the breaker."""
     attempt = 0
     while True:
         if breaker:

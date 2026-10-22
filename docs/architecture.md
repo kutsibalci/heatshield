@@ -25,7 +25,7 @@ flowchart LR
     EXEC --> LEDGER[(evidence ledger<br/>every decision, its signal, its trigger)]
     VERD --> LEDGER
     ESC --> LEDGER
-    SCHED[Scheduler<br/>apps/api/main.py] -->|sweep_due: 2 min severe / 10 min marginal| RT
+    SCHED[Scheduler<br/>apps/api/scheduler.py] -->|sweep_due: 2 min severe / 10 min marginal| RT
 ```
 
 Two layers, and the order between them is the design:
@@ -36,7 +36,7 @@ Two layers, and the order between them is the design:
 | **Agent** | `packages/agent/policy.py` | State machine per site and per worker; executes the plan against the operator; liveness probe; roster reconciliation; ledger; escalation | Invent a query outside a breach |
 | **Model (optional)** | `packages/agent/llm_adapter.py` | Proposes a **permutation** of the plan the rules produced, with a rationale per worker | Add, drop or repeat a worker; choose an API; exceed the budget; touch a verdict |
 | **Operator client** | `packages/nac_client` | Single entry point for the six CAMARA APIs: auth, timeout, retry, circuit breaker, phone masking; `fixture` / `simulator` / `live` backends | — |
-| **API + console** | `apps/api/main.py`, `apps/web/` | FastAPI service, scheduler, webhook sink, six one-click demo scenarios, the console | — |
+| **API + console** | `apps/api/`, `apps/web/` | FastAPI service (`main.py`), access control (`security.py`), scheduler (`scheduler.py`), webhook sink, six one-click demo scenarios (`demo.py`), the console | Run a demo scenario unless `HS_DEMO_MODE=1`, or against the live operator |
 
 ## 2. States
 
@@ -89,7 +89,7 @@ fired.
 
 ## 5. The scheduler — the agent's own clock
 
-`apps/api/main.py::Scheduler` re-sweeps breached sites on their own cadence (2 minutes severe, 10 minutes marginal)
+`apps/api/scheduler.py::Scheduler` re-sweeps breached sites on their own cadence (2 minutes severe, 10 minutes marginal)
 without anyone calling the API. Every ledger row records its `trigger`: `scheduler`, `api` or `demo`. It is **off by
 default in fixture mode** so that the six demo scenarios replay identically every time — the public demo instance runs
 that way — and on in `simulator` and `live` mode (`HS_SCHEDULER=1` forces it). Nine tests cover the cadence, the

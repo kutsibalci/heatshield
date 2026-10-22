@@ -1,8 +1,8 @@
-"""Modelin GERCEK gecikmesi ve basari orani. Tahmin degil, olcum.
+"""The model's REAL latency and success rate. A measurement, not an estimate.
 
-Guvenlik butcemiz 6 saniye: bir yeniden siralayici bundan uzun surerse terk edilir ve kurallar
-calisir. Bu butcenin dogru olup olmadigini bilmek icin modelin gercekte ne kadar surdugunu ve
-ne siklikta cevap verdigini olcmek gerekir.
+Our safety budget is 6 seconds: if a re-ranker takes longer than that, it is abandoned and the rules
+run. To know whether this budget is right, we need to measure how long the model actually takes and
+how often it answers.
 """
 import json
 import os
@@ -15,7 +15,7 @@ from _common import evidence_file, load_env, require_live_flag
 
 require_live_flag("Planner latency / success-rate measurement against Gemini / Groq.")
 load_env()
-os.environ["HS_PLANNER_TIMEOUT_S"] = "60"        # olcum icin genis; uretim butcesi ayri
+os.environ["HS_PLANNER_TIMEOUT_S"] = "60"        # generous for measurement; the production budget is separate
 
 from agent.llm_adapter import get_planner          # noqa: E402
 from rules.heatshield import Action               # noqa: E402
@@ -28,8 +28,8 @@ plan = [Action({"worker_id": f"W-{i:03d}", "masked": f"+99999***{i:04d}", "score
                "location_verify", "no exit event", i) for i in range(1, 13)]
 snap = {"wbgt_c": 35.6, "legal_limit_c": 32.1, "workers_in_plan": len(plan), "budget_per_sweep": 20}
 
-p = get_planner()   # zincir varsa zinciri olceriz — uretimde calisan sey bu
-print(f"Model: {p.name}   ornek: {N} cagri\n")
+p = get_planner()   # if there is a chain we measure the chain — that is what runs in production
+print(f"Model: {p.name}   sample: {N} calls\n")
 rows = []
 for i in range(1, N + 1):
     t = time.monotonic()
@@ -38,19 +38,19 @@ for i in range(1, N + 1):
     ms = int((time.monotonic() - t) * 1000)
     ok = bool(v.get("used"))
     rows.append({"call": i, "ok": ok, "ms": ms, "reason": None if ok else v.get("reason") or v.get("violation")})
-    print(f"  {i:>2}. {'BASARILI' if ok else 'DUSTU   '}  {ms:>6} ms   {rows[-1]['reason'] or ''}")
+    print(f"  {i:>2}. {'OK    ' if ok else 'FAILED'}  {ms:>6} ms   {rows[-1]['reason'] or ''}")
 
 good = [r["ms"] for r in rows if r["ok"]]
-print(f"\nbasari: {len(good)}/{N}")
+print(f"\nsuccess: {len(good)}/{N}")
 if good:
-    print(f"gecikme  medyan {statistics.median(good):.0f} ms · en dusuk {min(good)} · en yuksek {max(good)}")
+    print(f"latency  median {statistics.median(good):.0f} ms · min {min(good)} · max {max(good)}")
     for budget in (6, 10, 15, 20):
         within = sum(1 for m in good if m <= budget * 1000)
-        print(f"  {budget:>2} sn butcede yetisen: {within}/{N}")
+        print(f"  within a {budget:>2} s budget: {within}/{N}")
 out = evidence_file("planner-reliability")
 out.write_text(json.dumps({"at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                            "model": p.name, "calls": rows,
                            "success_rate": f"{len(good)}/{N}",
                            "median_ms": statistics.median(good) if good else None},
                           ensure_ascii=False, indent=2), encoding="utf-8")
-print("kayit:", out)
+print("saved:", out)
