@@ -14,10 +14,20 @@ services:
         value: "0"
       - key: HS_PLANNER
         value: rules
-      # Webhook/reset bearer: generated per deploy so the public instance never runs on the dev default.
-      # The console does not need it (Clear screen is client-side; scenarios reset their own site).
+      # The six one-click scenarios. Demo mode is refused when NAC_MODE=live.
+      - key: HS_DEMO_MODE
+        value: "1"
+      # Secrets are generated per deploy; the repository has no defaults. The console needs none of
+      # them, so writes and the webhook stay closed to the public.
+      - key: HS_API_TOKEN
+        generateValue: true
       - key: WEBHOOK_TOKEN
         generateValue: true
+      - key: PHONE_HASH_SALT
+        generateValue: true
+      # Render's proxy sets X-Forwarded-For; trusting it makes the demo rate limit per visitor, not per proxy.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
       # Anonymous-creation caps for a 512 MB free instance (measured: ~5.3 KB per worker).
       - key: HS_MAX_SITES
         value: "50"

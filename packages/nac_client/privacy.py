@@ -5,8 +5,15 @@ import hashlib
 import hmac
 import os
 import re
+import secrets
 
 _E164 = re.compile(r"^\+?[0-9]{8,15}$")
+
+# PHONE_HASH_SALT yoksa süreç başına RASTGELE bir tuz. Eskiden sabit "dev-salt-change-me" vardı:
+# depoda yazılı bir tuzla herkes bir numaranın hash'ini hesaplayıp eşleştirebilirdi. Rastgele tuz
+# süreç içinde kararlıdır (eşleştirme çalışır) ama yeniden başlatmada değişir; canlı mod bu yüzden
+# tuzu zorunlu tutar (bkz. api.main.missing_production_secrets).
+_PROCESS_SALT = secrets.token_hex(32)
 
 
 def normalize_phone(phone: str) -> str:
@@ -36,7 +43,7 @@ def hash_phone(phone: str, salt: str | None = None) -> str:
     Aynı numara aynı tenant'ta aynı hash'i üretir (batch eşleştirme için), ama hash'ten numaraya dönüş yok.
     """
     p = normalize_phone(phone)
-    key = (salt if salt is not None else os.environ.get("PHONE_HASH_SALT", "dev-salt-change-me")).encode()
+    key = (salt if salt is not None else (os.environ.get("PHONE_HASH_SALT") or _PROCESS_SALT)).encode()
     return hmac.new(key, p.encode(), hashlib.sha256).hexdigest()
 
 

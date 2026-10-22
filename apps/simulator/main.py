@@ -11,9 +11,11 @@ Ek kontrol uçları (gerçek API'de YOK, sadece demo):
 """
 from __future__ import annotations
 
+import ipaddress
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any
 
 import httpx
@@ -230,6 +232,16 @@ def sim_reset():
     return {"ok": True, "profiles": len(fx.profiles)}
 
 
+def _is_local(url: str) -> bool:
+    host = urlsplit(url).hostname or ""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 @app.post("/_sim/emit")
 def sim_emit(body: dict = Body(...)):
     """Bir aboneliğin sink'ine CloudEvent gönderir. body: {subscription_id?, phone?, type, extra?}"""
@@ -239,11 +251,19 @@ def sim_emit(body: dict = Body(...)):
     ]
     if not subs:
         raise HTTPException(404, "abonelik bulunamadı")
+    # SSRF: sink'i aboneliği açan herkes belirleyebiliyor; simülatör onu körü körüne POST'luyordu
+    # (ör. bulut meta veri adresi). Varsayılan: yalnızca yerel sink. SIM_ALLOW_REMOTE_SINKS=1 ile açılır.
+    if os.environ.get("SIM_ALLOW_REMOTE_SINKS") != "1":
+        remote = [s["sink"] for s in subs if not _is_local(s.get("sink") or "")]
+        if remote:
+            raise HTTPException(400, f"refusing to deliver to non-local sinks {remote}; set SIM_ALLOW_REMOTE_SINKS=1 to allow")
     delivered = []
     for s in subs:
         phone = (s.get("config") or {}).get("subscriptionDetail", {}).get("device", {}).get("phoneNumber")
         ev = fx.cloud_event(body["type"], s["id"], phone, body.get("extra"))
         headers = {"content-type": "application/cloudevents+json"}
+        if s.get("_sink_token"):                 # CAMARA: sinkCredential Bearer olarak geri gönderilir
+            headers["authorization"] = f"Bearer {s['_sink_token']}"
         try:
             r = httpx.post(s["sink"], json=ev, headers=headers, timeout=5)
             delivered.append({"subscription_id": s["id"], "status": r.status_code})

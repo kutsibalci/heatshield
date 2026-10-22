@@ -86,6 +86,11 @@ def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
+def _public(sub: dict) -> dict:
+    """Aboneliğin dışarı gösterilen hali: iç alanlar (tür, bildirim anahtarı) çıkarılır."""
+    return {k: v for k, v in sub.items() if k not in ("kind", "_sink_token")}
+
+
 class FixtureBackend:
     """Telefon → profil deposu + CAMARA cevap üreticileri."""
 
@@ -322,15 +327,17 @@ class FixtureBackend:
             "startsAt": self.now().isoformat(),
             "expiresAt": (body.get("config") or {}).get("subscriptionExpireTime"),
             "status": "ACTIVE",
+            # Bildirim gönderilirken Bearer olarak kullanılır (CAMARA sinkCredential); yanıtlarda görünmez.
+            "_sink_token": (body.get("sinkCredential") or {}).get("accessToken"),
         }
         self.subscriptions[sid] = sub
-        return {k: v for k, v in sub.items() if k != "kind"}
+        return _public(sub)
 
     def get_subscription(self, sid: str) -> dict:
         sub = self.subscriptions.get(sid)
         if not sub:
             raise NacError("not_found", "subscriptions", "abonelik yok", 404)
-        return {k: v for k, v in sub.items() if k != "kind"}
+        return _public(sub)
 
     def delete_subscription(self, sid: str) -> dict:
         sub = self.subscriptions.pop(sid, None)
@@ -339,7 +346,7 @@ class FixtureBackend:
         return {"id": sid}
 
     def list_subscriptions(self, kind: str | None = None) -> list[dict]:
-        return [{k: v for k, v in s.items() if k != "kind"} for s in self.subscriptions.values() if kind is None or s["kind"] == kind]
+        return [_public(s) for s in self.subscriptions.values() if kind is None or s["kind"] == kind]
 
     def qod_create(self, phone: str, body: dict) -> dict:
         prof = self.get(phone)

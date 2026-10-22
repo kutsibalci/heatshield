@@ -37,6 +37,8 @@ def _isolated_environment(monkeypatch):
     for name in _ISOLATED:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("NAC_MODE", "fixture")
+    # Demo senaryoları çoğu testin girdisi; kapalı olduğu durum test_security.py'de ayrıca sınanır.
+    monkeypatch.setenv("HS_DEMO_MODE", "1")
     monkeypatch.setenv("NAC_FALLBACK_TO_FIXTURE", "0")
     monkeypatch.setenv("NAC_FIXTURE_PATH", str(ROOT / "fixtures" / "profiles.json"))
     yield

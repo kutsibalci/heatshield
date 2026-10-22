@@ -104,21 +104,22 @@ class NacFacade:
             raise
 
 
-def mount_common(app: FastAPI, nac: NacClient, web_dir: Path | None = None) -> None:
+def mount_common(app: FastAPI, nac: NacClient, web_dir: Path | None = None, debug_dependencies: list | None = None) -> None:
     web_dir = web_dir or (ROOT / "apps" / "web")
     r = APIRouter()
+    debug = APIRouter(dependencies=debug_dependencies or [])   # hata ayıklama uçları kişisel veri sayılır
 
     @r.get("/health")
     def health():
         return {"ok": True, "nac": nac.health(), "fixture_path": str(FIXTURE_PATH), "profiles": len(nac.fx.profiles) if nac.fx else 0}
 
-    @r.get("/v1/_debug/calls")
+    @debug.get("/v1/_debug/calls")
     def debug_calls(limit: int = 30):
         # Debug paneli jüri ekranında açık kalır: istek gövdesi zaten maskeli, YANIT gövdesini de maskeliyoruz
         # (device-status / QoD yanıtları `device.phoneNumber` alanını aynen geri döndürüyor).
         return [_mask_deep(c.to_dict()) for c in nac.calls[-limit:]]
 
-    @r.get("/v1/_debug/profiles")
+    @debug.get("/v1/_debug/profiles")
     def debug_profiles():
         # Bu uç fixture profillerini gösterir ve jüri ekranında açık kalır. Kardeş ucu (`_debug/calls`)
         # maskeliyordu, bu maskelemiyordu: bir gizlilik denetimi burada 27 ham numarayı ve her birinin
@@ -136,5 +137,6 @@ def mount_common(app: FastAPI, nac: NacClient, web_dir: Path | None = None) -> N
         return FileResponse(web_dir / "index.html")
 
     app.include_router(r)
+    app.include_router(debug)
     if web_dir.exists():
         app.mount("/static", StaticFiles(directory=web_dir), name="static")

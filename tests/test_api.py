@@ -11,7 +11,8 @@ os.environ["WEBHOOK_TOKEN"] = "test-token"
 
 import api.main as m  # noqa: E402
 
-AUTH = {"Authorization": "Bearer test-token"}
+AUTH = {"Authorization": "Bearer test-token"}          # webhook (operatör bildirimleri)
+ADMIN = {"Authorization": "Bearer test-api-token"}     # yönetici: yazma uçları ve kişisel veri
 UTC = timezone.utc
 T0 = datetime(2026, 8, 17, 3, 0, tzinfo=UTC)     # 06:00 Doha
 NOON = datetime(2026, 8, 17, 9, 0, tzinfo=UTC)   # 12:00 Doha
@@ -23,10 +24,12 @@ GEO_LEFT = "org.camaraproject.geofencing-subscriptions.v0.area-left"
 def client():
     m.store.reset()
     m.WEBHOOK_TOKEN = "test-token"
+    m.API_TOKEN = "test-api-token"
+    m.DEMO_LIMITER.reset()
     m.nac.breaker._states.clear()
     for _, phone, *_ in m.NAMED:
         m.nac.fx.update_profile(phone, {"fail": None})
-    return TestClient(m.app)
+    return TestClient(m.app, headers=ADMIN)
 
 
 def mk_site(client, jur="QA"):
@@ -158,9 +161,10 @@ def test_jurisdictions_endpoint(client):
 def test_state_and_reset(client):
     mk_site(client)
     assert len(client.get("/v1/state").json()["sites"]) == 1
-    # Kanit defterini silmek kimlik dogrulamasi ister — uyum kaydi urunun kendisi.
-    assert client.post("/v1/reset").status_code == 401
-    assert client.post("/v1/reset", headers=AUTH).json()["ok"] is True
+    # Kanit defterini silmek yonetici token'i ister — uyum kaydi urunun kendisi; webhook anahtari yetmez.
+    assert client.post("/v1/reset", headers={"Authorization": ""}).status_code == 401
+    assert client.post("/v1/reset", headers=AUTH).status_code == 401
+    assert client.post("/v1/reset").json()["ok"] is True
     assert client.get("/v1/state").json()["sites"] == []
     assert client.get("/v1/sites/yok").status_code == 404
 
@@ -250,7 +254,7 @@ def test_scheduler_is_off_by_default_in_fixture_mode(client, monkeypatch):
 def test_scheduler_sweeps_on_its_own_when_enabled(client, monkeypatch):
     monkeypatch.setenv("HS_SCHEDULER", "1")
     monkeypatch.setenv("HS_SCHEDULER_TICK_S", "0.05")
-    with TestClient(m.app) as c:
+    with TestClient(m.app, headers=ADMIN) as c:
         assert c.get("/v1/scheduler").json()["enabled"] is True
         s = mk_site(c)
         add(c, s["site_id"], "W-001", "+99999910001")
